@@ -1,0 +1,61 @@
+name: hermes-qq-openclaw
+
+x-openclaw-common: &openclaw-common
+  image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
+  env_file:
+    - path: .env
+      required: true
+  user: "${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000}"
+  environment:
+    HOME: /home/node
+    OPENCLAW_HOME: /home/node
+    OPENCLAW_STATE_DIR: /home/node/.openclaw
+    OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+    OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+    OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+    OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+    OPENCLAW_DISABLE_BONJOUR: "1"
+    OPENCLAW_SKIP_STARTUP_MODEL_PREWARM: "1"
+    NPM_CONFIG_CACHE: /home/node/.openclaw/.npm-cache
+    TZ: ${OPENCLAW_TZ:-Asia/Shanghai}
+  volumes:
+    - ./runtime/config:/home/node/.openclaw
+    - ./runtime/workspace:/home/node/.openclaw/workspace
+  cap_drop:
+    - NET_RAW
+    - NET_ADMIN
+  security_opt:
+    - no-new-privileges:true
+  init: true
+
+services:
+  openclaw-gateway:
+    <<: *openclaw-common
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+    command:
+      - node
+      - dist/index.js
+      - gateway
+      - --bind
+      - lan
+      - --port
+      - "18789"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:18789/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  openclaw-cli:
+    <<: *openclaw-common
+    profiles: ["cli"]
+    entrypoint: ["node", "dist/index.js"]
+    stdin_open: true
+    tty: true
