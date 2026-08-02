@@ -8,7 +8,10 @@ __pycache__/
 config.yaml
 .env
 .env.*
+!/deploy/openclaw/.env.example
 secrets/
+!/website/docs/user-guide/secrets/
+!/website/docs/user-guide/secrets/*.md
 sessions/
 logs/
 state.db
@@ -34,6 +37,8 @@ __pycache__/model_tools.cpython-310.pyc
 __pycache__/web_tools.cpython-310.pyc
 logs/
 data/
+!/website/src/data/
+!/website/src/data/userStories.json
 .pytest_cache/
 test_durations.json
 .pytest-cache/
@@ -119,6 +124,7 @@ docs/superpowers/*
 # also created in-repo when an agent operates in this checkout). Plans, audit
 # logs, and per-session caches are never artifacts of the codebase.
 .hermes/
+/deploy/openclaw/runtime/
 
 # Desktop/bootstrap install marker written into the managed checkout root by the
 # bootstrap installer. It is Hermes-managed runtime state, never a code change —

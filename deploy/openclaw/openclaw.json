@@ -1,0 +1,113 @@
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    },
+    "terminal": {
+      "enabled": false
+    },
+    "controlUi": {
+      "enabled": true
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/home/node/.openclaw/workspace",
+      "model": {
+        "primary": "sensenova-token/deepseek-v4-flash",
+        "fallbacks": [
+          "hermes-deepseek/deepseek-chat"
+        ]
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "sensenova-token": {
+        "baseUrl": "https://token.sensenova.cn/v1",
+        "apiKey": {
+          "source": "env",
+          "provider": "default",
+          "id": "SENSENOVA_API_KEY"
+        },
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "deepseek-v4-flash",
+            "name": "SenseNova DeepSeek V4 Flash"
+          }
+        ]
+      },
+      "hermes-deepseek": {
+        "baseUrl": "https://api.deepseek.com/v1",
+        "apiKey": {
+          "source": "env",
+          "provider": "default",
+          "id": "HERMES_DEEPSEEK_API_KEY"
+        },
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "deepseek-chat",
+            "name": "DeepSeek Chat"
+          }
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "enabled": true,
+    "allow": [
+      "qqbot"
+    ],
+    "entries": {
+      "qqbot": {
+        "enabled": true
+      }
+    }
+  },
+  "channels": {
+    "qqbot": {
+      "enabled": true,
+      "appId": "${QQBOT_APP_ID}",
+      "clientSecret": {
+        "source": "env",
+        "provider": "default",
+        "id": "QQBOT_CLIENT_SECRET"
+      },
+      "dmPolicy": "allowlist",
+      "allowFrom": [
+        "${QQBOT_ALLOWED_USER_OPENID}"
+      ],
+      "groupPolicy": "allowlist",
+      "groupAllowFrom": [
+        "${QQBOT_ALLOWED_MEMBER_OPENID}"
+      ],
+      "groups": {
+        "*": {
+          "requireMention": true,
+          "historyLimit": 40,
+          "tools": {
+            "deny": [
+              "exec",
+              "read",
+              "write"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "tools": {
+    "deny": [
+      "exec",
+      "read",
+      "write"
+    ]
+  }
+}

@@ -16,13 +16,26 @@
 
 ## Windows 快速开始
 
-1. 安装 Hermes Agent 依赖并完成基础配置，参见上游 README。
+1. 在 PowerShell 中运行 [`scripts/install.ps1`](scripts/install.ps1) 安装 Hermes Agent 依赖并完成基础配置。
 2. 复制 `.env.example` 为本地 `.env`，设置 QQ Bot 凭据和模型 API key。真实 `.env` 永远不要提交。
 3. 复制 [`config.example.yaml`](config.example.yaml) 为 Hermes 的 `config.yaml`，填入自己的 QQ App ID、群白名单和模型配置。
 4. 按需修改 [`AGENTS.md`](AGENTS.md) 和 [`SOUL.md`](SOUL.md)。它们是机器人运行时的行为规则，不是密钥文件。
 5. 运行 [`scripts/windows/启动HermesGateway.bat`](scripts/windows/启动HermesGateway.bat)。Gateway 启动后会自动拉起额度切换监控。
 
 如果使用 Windows 计划任务，参照 [`scripts/windows/Hermes_Gateway.cmd`](scripts/windows/Hermes_Gateway.cmd) 配置任务入口；该入口同样会自动启动监控脚本。
+
+## OpenClaw + Docker
+
+仓库同时提供一套独立的 OpenClaw 部署配置，使用 OpenClaw 官方 QQ 插件，并将 OpenClaw、插件及其依赖全部运行在 Docker 中，不会在宿主机安装 OpenClaw：
+
+```bash
+cd deploy/openclaw
+cp .env.example .env
+# 填写 .env 中的 QQ 与模型凭据
+./setup.sh
+```
+
+该方案默认复用本仓库的 `AGENTS.md`、`SOUL.md`、SenseNova 主模型与 DeepSeek fallback，并关闭 OpenClaw 终端及文件/命令工具。完整配置、安全边界与 Windows 使用方式见 [`deploy/openclaw/README.md`](deploy/openclaw/README.md)。
 
 ## 模型额度切换
 
