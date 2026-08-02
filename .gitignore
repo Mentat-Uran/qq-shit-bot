@@ -8,7 +8,10 @@ __pycache__/
 config.yaml
 .env
 .env.*
+!/deploy/openclaw/.env.example
 secrets/
+!/website/docs/user-guide/secrets/
+!/website/docs/user-guide/secrets/*.md
 sessions/
 logs/
 state.db
@@ -34,6 +37,8 @@ __pycache__/model_tools.cpython-310.pyc
 __pycache__/web_tools.cpython-310.pyc
 logs/
 data/
+!/website/src/data/
+!/website/src/data/userStories.json
 .pytest_cache/
 test_durations.json
 .pytest-cache/

@@ -16,7 +16,7 @@
 
 ## Windows 快速开始
 
-1. 安装 Hermes Agent 依赖并完成基础配置，参见上游 README。
+1. 在 PowerShell 中运行 [`scripts/install.ps1`](scripts/install.ps1) 安装 Hermes Agent 依赖并完成基础配置。
 2. 复制 `.env.example` 为本地 `.env`，设置 QQ Bot 凭据和模型 API key。真实 `.env` 永远不要提交。
 3. 复制 [`config.example.yaml`](config.example.yaml) 为 Hermes 的 `config.yaml`，填入自己的 QQ App ID、群白名单和模型配置。
 4. 按需修改 [`AGENTS.md`](AGENTS.md) 和 [`SOUL.md`](SOUL.md)。它们是机器人运行时的行为规则，不是密钥文件。
