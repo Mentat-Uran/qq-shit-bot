@@ -8,6 +8,10 @@ ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_DIR = ROOT / "deploy" / "openclaw"
 
 
+def load_openclaw_config():
+    return json.loads((DEPLOY_DIR / "openclaw.json").read_text(encoding="utf-8"))
+
+
 def test_compose_uses_pinned_image_and_loopback_port():
     compose = yaml.safe_load((DEPLOY_DIR / "docker-compose.yml").read_text())
     common = compose["x-openclaw-common"]
@@ -22,7 +26,7 @@ def test_compose_uses_pinned_image_and_loopback_port():
 
 
 def test_openclaw_config_enables_qq_plugin_and_uses_secret_refs():
-    config = json.loads((DEPLOY_DIR / "openclaw.json").read_text())
+    config = load_openclaw_config()
 
     assert config["plugins"]["allow"] == ["qqbot"]
     assert config["plugins"]["entries"]["qqbot"]["enabled"] is True
@@ -40,6 +44,44 @@ def test_openclaw_config_enables_qq_plugin_and_uses_secret_refs():
     assert config["agents"]["defaults"]["model"]["fallbacks"] == [
         "hermes-deepseek/deepseek-chat"
     ]
+
+
+def test_openclaw_config_collects_group_context_and_keeps_vision_local():
+    config = load_openclaw_config()
+
+    defaults = config["agents"]["defaults"]
+    assert defaults["contextTokens"] == 65536
+    assert defaults["utilityModel"] == ""
+    assert defaults["imageModel"] == "local-vision/qwen2.5vl:7b"
+    assert defaults["compaction"]["mode"] == "safeguard"
+
+    qqbot = config["channels"]["qqbot"]
+    assert qqbot["contextVisibility"] == "all"
+    assert qqbot["historyLimit"] == 50
+    assert qqbot["groups"]["*"]["historyLimit"] == 50
+    assert "NO_REPLY" in qqbot["groups"]["*"]["prompt"]
+
+    assert config["messages"]["inbound"]["debounceMs"] == 2500
+    assert config["messages"]["queue"] == {
+        "mode": "collect",
+        "debounceMs": 2500,
+        "cap": 50,
+        "drop": "summarize",
+    }
+    assert config["tools"]["media"]["models"] == [
+        {
+            "provider": "local-vision",
+            "model": "qwen2.5vl:7b",
+            "capabilities": ["image"],
+            "timeoutSeconds": 180,
+            "maxChars": 2000,
+        }
+    ]
+
+    serialized = json.dumps(config)
+    assert "openai/" not in serialized
+    assert "api.openai.com" not in serialized
+    assert "gpt-" not in serialized
 
 
 def test_env_example_pins_matching_openclaw_and_plugin_versions():
@@ -61,3 +103,20 @@ def test_setup_invokes_openclaw_only_through_docker_compose():
     assert "docker-compose" in setup
     assert "npm install" not in setup
     assert "pnpm install" not in setup
+
+
+def test_windows_launcher_and_local_compose_overlay_are_present():
+    launcher = (DEPLOY_DIR / "Start-OpenClawDocker.ps1").read_text()
+    watcher = (DEPLOY_DIR / "Watch-OpenClawModel.ps1").read_text()
+    overlay = (DEPLOY_DIR / "docker-compose.local.yml").read_text()
+
+    assert "deepseek-api-key.dpapi" in launcher
+    assert "C:\\HermesWorkspace" in launcher
+    assert "Watch-OpenClawModel.ps1" in launcher
+    assert "SENSENOVA_API_KEY" in watcher
+    assert "hermes-deepseek/deepseek-chat" in watcher
+    assert "sensenova-token/deepseek-v4-flash" in watcher
+    assert "environment:" in overlay
+    assert "sk-" not in launcher
+    assert "sk-" not in watcher
+    assert "sk-" not in overlay
