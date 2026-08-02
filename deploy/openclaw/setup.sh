@@ -50,11 +50,17 @@ fi
 
 if docker compose version >/dev/null 2>&1; then
     compose() {
-        docker compose "$@"
+        docker compose \
+            -f "$SCRIPT_DIR/docker-compose.yml" \
+            -f "$SCRIPT_DIR/docker-compose.local.yml" \
+            -f "$SCRIPT_DIR/docker-compose.video.yml" "$@"
     }
 elif command -v docker-compose >/dev/null 2>&1; then
     compose() {
-        docker-compose "$@"
+        docker-compose \
+            -f "$SCRIPT_DIR/docker-compose.yml" \
+            -f "$SCRIPT_DIR/docker-compose.local.yml" \
+            -f "$SCRIPT_DIR/docker-compose.video.yml" "$@"
     }
 else
     echo "Docker Compose is required." >&2
@@ -116,3 +122,5 @@ compose up -d openclaw-gateway
 compose ps openclaw-gateway
 
 printf '\nOpenClaw QQ Bot is running at http://127.0.0.1:%s\n' "$(env_value OPENCLAW_GATEWAY_PORT)"
+printf 'Mage-VL video API is exposed locally at http://127.0.0.1:%s\n' "$(env_value MAGE_VIDEO_PORT)"
+printf 'LocateAnything + Qwen image API is exposed locally at http://127.0.0.1:%s\n' "$(env_value NVIDIA_IMAGE_PORT)"

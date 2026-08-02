@@ -1,14 +1,23 @@
 [CmdletBinding()]
 param(
     [switch]$NoWatcher,
-    [switch]$NoVision
+    [switch]$NoVision,
+    [switch]$NoVideo
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$composeFiles = @('-f', (Join-Path $scriptDir 'docker-compose.yml'), '-f', (Join-Path $scriptDir 'docker-compose.local.yml'))
+$composeFiles = [System.Collections.Generic.List[string]]::new()
+$composeFiles.Add('-f')
+$composeFiles.Add((Join-Path $scriptDir 'docker-compose.yml'))
+$composeFiles.Add('-f')
+$composeFiles.Add((Join-Path $scriptDir 'docker-compose.local.yml'))
+if (-not $NoVideo) {
+    $composeFiles.Add('-f')
+    $composeFiles.Add((Join-Path $scriptDir 'docker-compose.video.yml'))
+}
 $envFile = Join-Path $scriptDir '.env'
 $runtimeDir = Join-Path $scriptDir 'runtime'
 $configDir = Join-Path $runtimeDir 'config'
@@ -232,50 +241,79 @@ function Ensure-ProactiveReview {
     $prompt = (Get-Content -LiteralPath $promptFile -Raw -Encoding utf8).Trim()
     $sessionKey = "agent:main:qqbot:group:$homeChannel"
     $target = "qqbot:group:$homeChannel"
-    $cronArguments = [System.Collections.Generic.List[string]]::new()
-    $cronArguments.Add('exec')
-    $cronArguments.Add('-T')
-    $cronArguments.Add('openclaw-gateway')
-    $cronArguments.Add('node')
-    $cronArguments.Add('dist/index.js')
-    $cronArguments.Add('cron')
-    $cronArguments.Add('add')
-    $cronArguments.Add('hermes-qq-proactive-review')
-    $cronArguments.Add('--every')
-    $cronArguments.Add('15m')
-    $cronArguments.Add('--message')
-    $cronArguments.Add($prompt)
-    $cronArguments.Add('--session-key')
-    $cronArguments.Add($sessionKey)
-    $cronArguments.Add('--announce')
-    $cronArguments.Add('--channel')
-    $cronArguments.Add('qqbot')
-    $cronArguments.Add('--to')
-    $cronArguments.Add($target)
-    $cronArguments.Add('--best-effort-deliver')
-    $cronArguments.Add('--description')
-    $cronArguments.Add('Review collected QQ group context and speak only when useful.')
-    $cronArguments.Add('--declaration-key')
-    $cronArguments.Add('hermes-qq-proactive-review')
-    $cronArguments.Add('--timeout-seconds')
-    $cronArguments.Add('180')
     Start-Sleep -Seconds 8
-    $registrationError = $null
-    for ($attempt = 0; $attempt -lt 4; $attempt++) {
-        try {
-            Invoke-Compose -Arguments $cronArguments.ToArray()
-            $registrationError = $null
-            break
-        } catch {
-            $registrationError = $_
-            if ($attempt -lt 3) {
-                Start-Sleep -Seconds 5
+
+    function Register-ProactiveReviewJob {
+        param(
+            [Parameter(Mandatory = $true)][string]$Name,
+            [Parameter(Mandatory = $true)][string]$CronExpression,
+            [Parameter(Mandatory = $true)][string]$DeclarationKey,
+            [Parameter(Mandatory = $true)][string]$Description
+        )
+
+        $cronArguments = [System.Collections.Generic.List[string]]::new()
+        $cronArguments.Add('exec')
+        $cronArguments.Add('-T')
+        $cronArguments.Add('openclaw-gateway')
+        $cronArguments.Add('node')
+        $cronArguments.Add('dist/index.js')
+        $cronArguments.Add('cron')
+        $cronArguments.Add('add')
+        $cronArguments.Add($Name)
+        $cronArguments.Add('--cron')
+        $cronArguments.Add($CronExpression)
+        $cronArguments.Add('--tz')
+        $cronArguments.Add('Asia/Shanghai')
+        $cronArguments.Add('--exact')
+        $cronArguments.Add('--message')
+        $cronArguments.Add($prompt)
+        $cronArguments.Add('--session-key')
+        $cronArguments.Add($sessionKey)
+        $cronArguments.Add('--announce')
+        $cronArguments.Add('--channel')
+        $cronArguments.Add('qqbot')
+        $cronArguments.Add('--to')
+        $cronArguments.Add($target)
+        $cronArguments.Add('--best-effort-deliver')
+        $cronArguments.Add('--description')
+        $cronArguments.Add($Description)
+        $cronArguments.Add('--declaration-key')
+        $cronArguments.Add($DeclarationKey)
+        $cronArguments.Add('--timeout-seconds')
+        $cronArguments.Add('180')
+
+        $registrationError = $null
+        for ($attempt = 0; $attempt -lt 4; $attempt++) {
+            try {
+                Invoke-Compose -Arguments $cronArguments.ToArray()
+                $registrationError = $null
+                break
+            } catch {
+                $registrationError = $_
+                if ($attempt -lt 3) {
+                    Start-Sleep -Seconds 5
+                }
             }
         }
+        if ($null -ne $registrationError) {
+            throw $registrationError
+        }
     }
-    if ($null -ne $registrationError) {
-        throw $registrationError
-    }
+
+    # Daytime: 08:00-02:00, every 10 minutes. The old declaration key is
+    # intentionally reused so existing installations are updated in place.
+    Register-ProactiveReviewJob `
+        -Name 'hermes-qq-proactive-review' `
+        -CronExpression '*/10 8-23,0-1 * * *' `
+        -DeclarationKey 'hermes-qq-proactive-review' `
+        -Description 'Review collected QQ group context every 10 minutes during daytime.'
+
+    # Nighttime: 02:00-08:00, every 30 minutes to reduce model calls.
+    Register-ProactiveReviewJob `
+        -Name 'hermes-qq-proactive-review-night' `
+        -CronExpression '*/30 2-7 * * *' `
+        -DeclarationKey 'hermes-qq-proactive-review-night' `
+        -Description 'Review collected QQ group context every 30 minutes overnight.'
 }
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -283,6 +321,9 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 }
 if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     throw "Local OpenClaw env file is missing: $envFile"
+}
+if (-not $NoVideo -and -not (Test-Path -LiteralPath (Join-Path $scriptDir 'docker-compose.video.yml') -PathType Leaf)) {
+    throw 'The Mage-VL and image-fusion compose file is missing.'
 }
 
 Set-RuntimeEnvironment
@@ -325,4 +366,8 @@ if (-not $NoWatcher) {
     ) | Out-Null
 }
 
-Write-Host 'OpenClaw Docker gateway started; the existing local vision stack and model route watcher are enabled.'
+if ($NoVideo) {
+    Write-Host 'OpenClaw Docker gateway started; video support is disabled with -NoVideo.'
+} else {
+    Write-Host 'OpenClaw Docker gateway started; NVIDIA LocateAnything + local Qwen image fusion and Microsoft Mage-VL video understanding are enabled.'
+}

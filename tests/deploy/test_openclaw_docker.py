@@ -55,11 +55,16 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     assert defaults["imageModel"] == "local-vision/qwen2.5vl:7b"
     assert defaults["compaction"]["mode"] == "safeguard"
 
+    local_qwen = config["models"]["providers"]["local-vision"]["models"][0]
+    assert local_qwen["compat"]["supportsTools"] is False
+
     qqbot = config["channels"]["qqbot"]
     assert qqbot["contextVisibility"] == "all"
     assert qqbot["historyLimit"] == 50
     assert qqbot["groups"]["*"]["historyLimit"] == 50
     assert "NO_REPLY" in qqbot["groups"]["*"]["prompt"]
+    assert "被艾特、回复机器人或私聊时" in qqbot["groups"]["*"]["prompt"]
+    assert "不得输出 NO_REPLY" in qqbot["groups"]["*"]["prompt"]
 
     assert config["messages"]["inbound"]["debounceMs"] == 2500
     assert config["messages"]["queue"] == {
@@ -68,15 +73,23 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
         "cap": 50,
         "drop": "summarize",
     }
-    assert config["tools"]["media"]["models"] == [
-        {
-            "provider": "local-vision",
-            "model": "qwen2.5vl:7b",
-            "capabilities": ["image"],
-            "timeoutSeconds": 180,
-            "maxChars": 2000,
-        }
-    ]
+    image_models = config["tools"]["media"]["models"]
+    assert image_models[0]["type"] == "cli"
+    assert image_models[0]["capabilities"] == ["image"]
+    assert "nvidia-image-cli.mjs" in " ".join(image_models[0]["args"])
+    assert image_models[1] == {
+        "provider": "local-vision",
+        "model": "qwen2.5vl:7b",
+        "capabilities": ["image"],
+        "timeoutSeconds": 180,
+        "maxChars": 2000,
+    }
+    video = config["tools"]["media"]["video"]
+    assert video["enabled"] is True
+    assert video["timeoutSeconds"] == 1200
+    assert video["models"][0]["type"] == "cli"
+    assert video["models"][0]["capabilities"] == ["video"]
+    assert "mage-video-cli.mjs" in " ".join(video["models"][0]["args"])
 
     serialized = json.dumps(config)
     assert "openai/" not in serialized
@@ -93,6 +106,9 @@ def test_env_example_pins_matching_openclaw_and_plugin_versions():
     assert "QQBOT_ALLOWED_USER_OPENID=replace-with-dm-user-openid" in env_text
     assert "QQBOT_ALLOWED_MEMBER_OPENID=replace-with-group-member-openid" in env_text
     assert "HERMES_DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in env_text
+    assert "MAGE_MODEL_ID=microsoft/Mage-VL" in env_text
+    assert "NVIDIA_IMAGE_MODEL_ID=nvidia/LocateAnything-3B" in env_text
+    assert "QWEN_MODEL_ID=qwen2.5vl:7b" in env_text
     assert "sk-" not in env_text
 
 
@@ -109,6 +125,8 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     launcher = (DEPLOY_DIR / "Start-OpenClawDocker.ps1").read_text()
     watcher = (DEPLOY_DIR / "Watch-OpenClawModel.ps1").read_text()
     overlay = (DEPLOY_DIR / "docker-compose.local.yml").read_text()
+    video_compose = (DEPLOY_DIR / "docker-compose.video.yml").read_text()
+    bridge_cli = (DEPLOY_DIR / "video-bridge" / "mage-video-cli.mjs").read_text()
 
     assert "deepseek-api-key.dpapi" in launcher
     assert "C:\\HermesWorkspace" in launcher
@@ -116,7 +134,26 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert "SENSENOVA_API_KEY" in watcher
     assert "hermes-deepseek/deepseek-chat" in watcher
     assert "sensenova-token/deepseek-v4-flash" in watcher
+    assert "*/10 8-23,0-1 * * *" in launcher
+    assert "*/30 2-7 * * *" in launcher
+    assert "Asia/Shanghai" in launcher
+    assert "docker-compose.video.yml" in launcher
+    assert "-NoVideo" in launcher
+    assert "microsoft/Mage-VL" in video_compose
+    assert "nvidia/LocateAnything-3B" in video_compose
+    assert "vllm/vllm-openai" in video_compose
+    assert "image-fusion" in video_compose
+    assert "nvidia-image-cli.mjs" in video_compose
+    assert "{{MediaPath}}" in bridge_cli or "--media-path" in bridge_cli
     assert "environment:" in overlay
     assert "sk-" not in launcher
     assert "sk-" not in watcher
     assert "sk-" not in overlay
+
+
+def test_windows_batch_launcher_points_to_openclaw_startup_script():
+    launcher = (ROOT / "Start-OpenClawQQBot.bat").read_text(encoding="utf-8")
+
+    assert "deploy\\openclaw\\Start-OpenClawDocker.ps1" in launcher
+    assert "ExecutionPolicy Bypass" in launcher
+    assert "sk-" not in launcher
