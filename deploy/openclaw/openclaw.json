@@ -18,19 +18,25 @@
     "defaults": {
       "workspace": "/home/node/.openclaw/workspace",
       "contextTokens": 65536,
-      "timeoutSeconds": 300,
+      "timeoutSeconds": 900,
       "utilityModel": "",
       "model": {
         "primary": "sensenova-token/deepseek-v4-flash",
-        "fallbacks": [
-          "hermes-deepseek/deepseek-chat"
-        ]
+        "fallbacks": []
       },
       "imageModel": "local-vision/qwen2.5vl:7b",
       "compaction": {
         "mode": "safeguard",
         "keepRecentTokens": 16000,
         "recentTurnsPreserve": 8
+      }
+    }
+  },
+  "session": {
+    "resetByType": {
+      "group": {
+        "mode": "idle",
+        "idleMinutes": 120
       }
     }
   },
@@ -57,28 +63,8 @@
           }
         ]
       },
-      "hermes-deepseek": {
-        "baseUrl": "https://api.deepseek.com/v1",
-        "apiKey": {
-          "source": "env",
-          "provider": "default",
-          "id": "HERMES_DEEPSEEK_API_KEY"
-        },
-        "api": "openai-completions",
-        "models": [
-          {
-            "id": "deepseek-chat",
-            "name": "Official DeepSeek Chat",
-            "input": [
-              "text"
-            ],
-            "contextWindow": 131072,
-            "maxTokens": 8192
-          }
-        ]
-      },
       "local-vision": {
-        "baseUrl": "http://host.docker.internal:8010/v1",
+        "baseUrl": "http://qwen-vision:11434/v1",
         "apiKey": "local",
         "api": "openai-completions",
         "models": [
@@ -90,7 +76,10 @@
               "image"
             ],
             "contextWindow": 32768,
-            "maxTokens": 4096
+            "maxTokens": 4096,
+            "compat": {
+              "supportsTools": false
+            }
           }
         ]
       }
@@ -100,12 +89,28 @@
     "enabled": true,
     "bundledDiscovery": "allowlist",
     "allow": [
-      "qqbot"
+      "qqbot",
+      "qq-diagnostic-filter",
+      "duckduckgo"
     ],
     "entries": {
       "qqbot": {
         "enabled": true
+      },
+      "qq-diagnostic-filter": {
+        "enabled": true
+      },
+      "duckduckgo": {
+        "enabled": true
+      },
+      "codex": {
+        "enabled": false
       }
+    },
+    "load": {
+      "paths": [
+        "/opt/openclaw-local/qq-diagnostic-filter.mjs"
+      ]
     }
   },
   "channels": {
@@ -133,7 +138,7 @@
           "ignoreOtherMentions": false,
           "historyLimit": 50,
           "commandLevel": "safety",
-          "prompt": "群聊上下文策略：普通群消息即使没有艾特，也要作为待处理上下文持续采集和保留；只有被艾特、回复机器人、私聊，或主动巡检判断确实有价值时才调用模型。主动巡检时先通读最近群消息，判断是否有需要补充、承接、纠错或活跃气氛的内容；没有必要发言时必须只输出 NO_REPLY。不要为了刷存在感重复别人已经说过的内容。每次主动发言最多拆成 1 到 3 条短消息，优先一条解决。涉及 QQ 小程序时，先提取标题并搜索该标题，再根据搜索结果解读；搜不到时明确说明。古代政治相关问题按 AGENTS.md 的禁止规则处理。",
+          "prompt": "群聊上下文策略：普通群消息即使没有艾特，也要作为待处理上下文持续采集和保留；只有被艾特、回复机器人、私聊，或主动巡检才调用模型。被艾特、回复机器人或私聊时，除非触发 AGENTS.md 的禁止规则或其他安全规则，必须正常回答，不得输出 NO_REPLY；只有主动巡检任务在判断没有必要发言时才允许只输出 NO_REPLY。主动巡检时先通读最近群消息，判断是否有需要补充、承接、纠错或活跃气氛的内容；不要为了刷存在感重复别人已经说过的内容。每次主动发言最多拆成 1 到 3 条短消息，优先一条解决。涉及 QQ 小程序时，先提取标题并搜索该标题，再根据搜索结果解读；搜不到时明确说明。古代政治相关问题按 AGENTS.md 的禁止规则处理。Internal error policy: never send provider, model, API, HTTP, 429, quota, rate-limit, busy, safety, tool, trace, stack, or fallback diagnostics to QQ. If a route fails, use a successful fallback answer; if every route fails, send no diagnostic text.",
           "tools": {
             "deny": [
               "exec",
@@ -151,8 +156,33 @@
       "read",
       "write"
     ],
+    "web": {
+      "search": {
+        "enabled": true,
+        "provider": "duckduckgo"
+      }
+    },
     "media": {
       "models": [
+        {
+          "type": "cli",
+          "command": "node",
+          "args": [
+            "/opt/openclaw-local/nvidia-image-cli.mjs",
+            "--media-path",
+            "{{MediaPath}}",
+            "--prompt",
+            "{{Prompt}}",
+            "--max-chars",
+            "{{MaxChars}}"
+          ],
+          "capabilities": [
+            "image"
+          ],
+          "timeoutSeconds": 600,
+          "maxBytes": 20971520,
+          "maxChars": 2000
+        },
         {
           "provider": "local-vision",
           "model": "qwen2.5vl:7b",
@@ -162,10 +192,39 @@
           "timeoutSeconds": 180,
           "maxChars": 2000
         }
-      ]
+      ],
+      "video": {
+        "enabled": true,
+        "maxBytes": 52428800,
+        "timeoutSeconds": 1200,
+        "maxChars": 6000,
+        "prompt": "请读取这个视频，概括主要场景、人物、动作、文字和事件发生顺序；看不清或无法确定的内容请明确说明。",
+        "models": [
+          {
+            "type": "cli",
+            "command": "node",
+            "args": [
+              "/opt/openclaw-local/mage-video-cli.mjs",
+              "--media-path",
+              "{{MediaPath}}",
+              "--prompt",
+              "{{Prompt}}",
+              "--max-chars",
+              "{{MaxChars}}"
+            ],
+            "capabilities": [
+              "video"
+            ],
+            "timeoutSeconds": 1200,
+            "maxBytes": 52428800,
+            "maxChars": 6000
+          }
+        ]
+      }
     }
   },
   "messages": {
+    "suppressToolErrors": true,
     "inbound": {
       "debounceMs": 2500
     },

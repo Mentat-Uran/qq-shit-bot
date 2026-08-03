@@ -1,14 +1,23 @@
 [CmdletBinding()]
 param(
     [switch]$NoWatcher,
-    [switch]$NoVision
+    [switch]$NoVision,
+    [switch]$NoVideo
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$composeFiles = @('-f', (Join-Path $scriptDir 'docker-compose.yml'), '-f', (Join-Path $scriptDir 'docker-compose.local.yml'))
+$composeFiles = [System.Collections.Generic.List[string]]::new()
+$composeFiles.Add('-f')
+$composeFiles.Add((Join-Path $scriptDir 'docker-compose.yml'))
+$composeFiles.Add('-f')
+$composeFiles.Add((Join-Path $scriptDir 'docker-compose.local.yml'))
+if (-not $NoVideo) {
+    $composeFiles.Add('-f')
+    $composeFiles.Add((Join-Path $scriptDir 'docker-compose.video.yml'))
+}
 $envFile = Join-Path $scriptDir '.env'
 $runtimeDir = Join-Path $scriptDir 'runtime'
 $configDir = Join-Path $runtimeDir 'config'
@@ -17,8 +26,7 @@ $sourceConfig = Join-Path $scriptDir 'openclaw.json'
 $runtimeConfig = Join-Path $configDir 'openclaw.json'
 $hermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:LOCALAPPDATA 'hermes' }
 $hermesEnvFile = Join-Path $hermesHome '.env'
-$deepSeekSecretFile = Join-Path $hermesHome 'secrets\deepseek-api-key.dpapi'
-$visionCompose = Join-Path 'C:\HermesWorkspace' 'local-vision\docker-compose.yml'
+$legacyVisionVolume = 'local-vision_hermes-vision-model-cache'
 
 function Get-DotEnvValue {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Name)
@@ -33,26 +41,6 @@ function Get-DotEnvValue {
         return ''
     }
     return (($line -replace ("^\s*" + [regex]::Escape($Name) + "\s*=\s*"), '').Trim().Trim('"').Trim("'"))
-}
-
-function Read-DeepSeekKey {
-    if (-not (Test-Path -LiteralPath $deepSeekSecretFile -PathType Leaf)) {
-        return ''
-    }
-    $secureValue = $null
-    $pointer = [IntPtr]::Zero
-    try {
-        $encryptedValue = (Get-Content -LiteralPath $deepSeekSecretFile -Raw -Encoding utf8).Trim()
-        $secureValue = ConvertTo-SecureString -String $encryptedValue
-        $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureValue)
-        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-    } catch {
-        return ''
-    } finally {
-        if ($pointer -ne [IntPtr]::Zero) {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
-        }
-    }
 }
 
 function Set-DotEnvValue {
@@ -108,11 +96,6 @@ function Set-RuntimeEnvironment {
         Set-Item -Path ("Env:{0}" -f $target) -Value $value
     }
 
-    $deepSeek = Read-DeepSeekKey
-    if ([string]::IsNullOrWhiteSpace($deepSeek)) {
-        throw 'The DPAPI-protected DeepSeek fallback key could not be loaded.'
-    }
-    $env:HERMES_DEEPSEEK_API_KEY = $deepSeek
     $plugin = Get-DotEnvValue -Path $envFile -Name 'OPENCLAW_QQBOT_PLUGIN'
     $env:OPENCLAW_QQBOT_PLUGIN = if ($plugin) { $plugin } else { '@openclaw/qqbot@2026.7.1' }
 
@@ -151,45 +134,72 @@ function Invoke-Compose {
     }
 }
 
-function Ensure-VisionStack {
-    if ($NoVision) {
+function Select-QwenModelCache {
+    $legacyVolume = & docker volume inspect $legacyVisionVolume 2>$null
+    if ($LASTEXITCODE -eq 0 -and $legacyVolume) {
+        $env:QWEN_MODEL_CACHE_VOLUME = $legacyVisionVolume
+        $env:QWEN_MODEL_CACHE_EXTERNAL = 'true'
+    }
+}
+
+function Remove-LegacyVisionContainer {
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $inspectionJson = & docker inspect hermes-vision 2>$null
+        $inspectExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+    if ($inspectExitCode -ne 0 -or -not $inspectionJson) {
         return
     }
-    if (-not (Test-Path -LiteralPath $visionCompose -PathType Leaf)) {
-        throw "The existing local vision compose file was not found: $visionCompose"
-    }
-    Push-Location (Split-Path -Parent $visionCompose)
     try {
-        & docker compose -f $visionCompose up -d
-        if ($LASTEXITCODE -ne 0) {
-            throw 'The existing local vision stack could not be started.'
-        }
-    } finally {
-        Pop-Location
+        $inspection = @($inspectionJson | ConvertFrom-Json)[0]
+        $image = [string]$inspection.Config.Image
+    } catch {
+        return
     }
+    if ($image -notlike 'ollama/ollama:*') {
+        return
+    }
+    & docker rm -f hermes-vision 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The legacy hermes-vision container could not be removed after Qwen migration.'
+    }
+}
+
+function Ensure-QwenService {
+    if ($NoVideo) {
+        return
+    }
+    Invoke-Compose -Arguments @('up', '-d', 'qwen-vision')
 
     $ready = $false
+    $modelList = ''
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        $previousErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         try {
-            $null = Invoke-RestMethod -Uri 'http://127.0.0.1:8010/api/tags' -TimeoutSec 3
+            $modelList = (& docker compose @composeFiles exec -T qwen-vision ollama list 2>$null | Out-String)
+            $qwenExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousErrorAction
+        }
+        if ($qwenExitCode -eq 0) {
             $ready = $true
             break
-        } catch {
-            Start-Sleep -Seconds 2
         }
+        Start-Sleep -Seconds 2
     }
     if (-not $ready) {
-        throw 'The local vision API did not become ready on 127.0.0.1:8010.'
+        throw 'The OpenClaw qwen-vision service did not become ready.'
     }
 
-    $tags = (Invoke-RestMethod -Uri 'http://127.0.0.1:8010/api/tags' -TimeoutSec 10).models
-    $hasQwen = @($tags | Where-Object { $_.name -eq 'qwen2.5vl:7b' }).Count -gt 0
-    if (-not $hasQwen) {
-        & docker exec hermes-vision ollama pull qwen2.5vl:7b
-        if ($LASTEXITCODE -ne 0) {
-            throw 'The local Qwen2.5-VL model could not be pulled.'
-        }
+    if ($modelList -notmatch '(?m)^qwen2\.5vl:7b\s') {
+        Invoke-Compose -Arguments @('exec', '-T', 'qwen-vision', 'ollama', 'pull', 'qwen2.5vl:7b')
     }
+    Remove-LegacyVisionContainer
 }
 
 function Ensure-RuntimeFiles {
@@ -232,50 +242,79 @@ function Ensure-ProactiveReview {
     $prompt = (Get-Content -LiteralPath $promptFile -Raw -Encoding utf8).Trim()
     $sessionKey = "agent:main:qqbot:group:$homeChannel"
     $target = "qqbot:group:$homeChannel"
-    $cronArguments = [System.Collections.Generic.List[string]]::new()
-    $cronArguments.Add('exec')
-    $cronArguments.Add('-T')
-    $cronArguments.Add('openclaw-gateway')
-    $cronArguments.Add('node')
-    $cronArguments.Add('dist/index.js')
-    $cronArguments.Add('cron')
-    $cronArguments.Add('add')
-    $cronArguments.Add('hermes-qq-proactive-review')
-    $cronArguments.Add('--every')
-    $cronArguments.Add('15m')
-    $cronArguments.Add('--message')
-    $cronArguments.Add($prompt)
-    $cronArguments.Add('--session-key')
-    $cronArguments.Add($sessionKey)
-    $cronArguments.Add('--announce')
-    $cronArguments.Add('--channel')
-    $cronArguments.Add('qqbot')
-    $cronArguments.Add('--to')
-    $cronArguments.Add($target)
-    $cronArguments.Add('--best-effort-deliver')
-    $cronArguments.Add('--description')
-    $cronArguments.Add('Review collected QQ group context and speak only when useful.')
-    $cronArguments.Add('--declaration-key')
-    $cronArguments.Add('hermes-qq-proactive-review')
-    $cronArguments.Add('--timeout-seconds')
-    $cronArguments.Add('180')
     Start-Sleep -Seconds 8
-    $registrationError = $null
-    for ($attempt = 0; $attempt -lt 4; $attempt++) {
-        try {
-            Invoke-Compose -Arguments $cronArguments.ToArray()
-            $registrationError = $null
-            break
-        } catch {
-            $registrationError = $_
-            if ($attempt -lt 3) {
-                Start-Sleep -Seconds 5
+
+    function Register-ProactiveReviewJob {
+        param(
+            [Parameter(Mandatory = $true)][string]$Name,
+            [Parameter(Mandatory = $true)][string]$CronExpression,
+            [Parameter(Mandatory = $true)][string]$DeclarationKey,
+            [Parameter(Mandatory = $true)][string]$Description
+        )
+
+        $cronArguments = [System.Collections.Generic.List[string]]::new()
+        $cronArguments.Add('exec')
+        $cronArguments.Add('-T')
+        $cronArguments.Add('openclaw-gateway')
+        $cronArguments.Add('node')
+        $cronArguments.Add('dist/index.js')
+        $cronArguments.Add('cron')
+        $cronArguments.Add('add')
+        $cronArguments.Add($Name)
+        $cronArguments.Add('--cron')
+        $cronArguments.Add($CronExpression)
+        $cronArguments.Add('--tz')
+        $cronArguments.Add('Asia/Shanghai')
+        $cronArguments.Add('--exact')
+        $cronArguments.Add('--message')
+        $cronArguments.Add($prompt)
+        $cronArguments.Add('--session-key')
+        $cronArguments.Add($sessionKey)
+        $cronArguments.Add('--announce')
+        $cronArguments.Add('--channel')
+        $cronArguments.Add('qqbot')
+        $cronArguments.Add('--to')
+        $cronArguments.Add($target)
+        $cronArguments.Add('--best-effort-deliver')
+        $cronArguments.Add('--description')
+        $cronArguments.Add($Description)
+        $cronArguments.Add('--declaration-key')
+        $cronArguments.Add($DeclarationKey)
+        $cronArguments.Add('--timeout-seconds')
+        $cronArguments.Add('180')
+
+        $registrationError = $null
+        for ($attempt = 0; $attempt -lt 4; $attempt++) {
+            try {
+                Invoke-Compose -Arguments $cronArguments.ToArray()
+                $registrationError = $null
+                break
+            } catch {
+                $registrationError = $_
+                if ($attempt -lt 3) {
+                    Start-Sleep -Seconds 5
+                }
             }
         }
+        if ($null -ne $registrationError) {
+            throw $registrationError
+        }
     }
-    if ($null -ne $registrationError) {
-        throw $registrationError
-    }
+
+    # Daytime: 08:00-02:00, every 10 minutes. The old declaration key is
+    # intentionally reused so existing installations are updated in place.
+    Register-ProactiveReviewJob `
+        -Name 'hermes-qq-proactive-review' `
+        -CronExpression '*/10 8-23,0-1 * * *' `
+        -DeclarationKey 'hermes-qq-proactive-review' `
+        -Description 'Review collected QQ group context every 10 minutes during daytime.'
+
+    # Nighttime: 02:00-08:00, every 30 minutes to reduce model calls.
+    Register-ProactiveReviewJob `
+        -Name 'hermes-qq-proactive-review-night' `
+        -CronExpression '*/30 2-7 * * *' `
+        -DeclarationKey 'hermes-qq-proactive-review-night' `
+        -Description 'Review collected QQ group context every 30 minutes overnight.'
 }
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -284,15 +323,19 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     throw "Local OpenClaw env file is missing: $envFile"
 }
+if (-not $NoVideo -and -not (Test-Path -LiteralPath (Join-Path $scriptDir 'docker-compose.video.yml') -PathType Leaf)) {
+    throw 'The Mage-VL and image-fusion compose file is missing.'
+}
 
 Set-RuntimeEnvironment
-Ensure-VisionStack
+Select-QwenModelCache
 Ensure-RuntimeFiles
 
 Push-Location $scriptDir
 try {
     Invoke-Compose -Arguments @('config', '--quiet')
-    Invoke-Compose -Arguments @('pull', 'openclaw-gateway', 'openclaw-cli')
+    Invoke-Compose -Arguments @('pull', 'openclaw-gateway', 'openclaw-cli', 'qwen-vision')
+    Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'qq-diagnostic-filter-init')
 
     $previousErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
@@ -306,13 +349,19 @@ try {
         Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'plugins', 'install', $env:OPENCLAW_QQBOT_PLUGIN, '--force', '--pin')
     }
     Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'config', 'validate')
+    $mediaMode = if ($NoVideo -or $NoVision) { 'none' } else { 'both' }
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'Set-OpenClawMediaCapabilities.ps1') -Mode $mediaMode
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to set OpenClaw media capabilities with exit code $LASTEXITCODE."
+    }
+    Ensure-QwenService
 
     $portInUse = Get-NetTCPConnection -LocalPort ([int]$env:OPENCLAW_GATEWAY_PORT) -State Listen -ErrorAction SilentlyContinue
     if ($portInUse) {
         throw "Port $($env:OPENCLAW_GATEWAY_PORT) is already in use; refusing to start a second gateway."
     }
-    Invoke-Compose -Arguments @('up', '-d', '--force-recreate', 'openclaw-gateway')
-    Invoke-Compose -Arguments @('ps', 'openclaw-gateway')
+    Invoke-Compose -Arguments @('up', '-d', '--force-recreate', 'openclaw-gateway', 'context-recovery')
+    Invoke-Compose -Arguments @('ps', 'openclaw-gateway', 'context-recovery')
     Ensure-ProactiveReview
 } finally {
     Pop-Location
@@ -325,4 +374,8 @@ if (-not $NoWatcher) {
     ) | Out-Null
 }
 
-Write-Host 'OpenClaw Docker gateway started; the existing local vision stack and model route watcher are enabled.'
+if ($NoVideo) {
+    Write-Host 'OpenClaw Docker gateway started; video support is disabled with -NoVideo.'
+} else {
+    Write-Host 'OpenClaw Docker gateway started; NVIDIA LocateAnything + local Qwen image fusion and Microsoft Mage-VL video understanding are enabled.'
+}

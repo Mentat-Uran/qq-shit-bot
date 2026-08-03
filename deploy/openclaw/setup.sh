@@ -50,11 +50,17 @@ fi
 
 if docker compose version >/dev/null 2>&1; then
     compose() {
-        docker compose "$@"
+        docker compose \
+            -f "$SCRIPT_DIR/docker-compose.yml" \
+            -f "$SCRIPT_DIR/docker-compose.local.yml" \
+            -f "$SCRIPT_DIR/docker-compose.video.yml" "$@"
     }
 elif command -v docker-compose >/dev/null 2>&1; then
     compose() {
-        docker-compose "$@"
+        docker-compose \
+            -f "$SCRIPT_DIR/docker-compose.yml" \
+            -f "$SCRIPT_DIR/docker-compose.local.yml" \
+            -f "$SCRIPT_DIR/docker-compose.video.yml" "$@"
     }
 else
     echo "Docker Compose is required." >&2
@@ -71,6 +77,14 @@ chmod 600 "$ENV_FILE"
 
 replace_env_value OPENCLAW_UID "$(id -u)"
 replace_env_value OPENCLAW_GID "$(id -g)"
+replace_env_value QWEN_BASE_URL "http://qwen-vision:11434"
+if docker volume inspect local-vision_hermes-vision-model-cache >/dev/null 2>&1; then
+    replace_env_value QWEN_MODEL_CACHE_VOLUME "local-vision_hermes-vision-model-cache"
+    replace_env_value QWEN_MODEL_CACHE_EXTERNAL "true"
+else
+    replace_env_value QWEN_MODEL_CACHE_VOLUME "hermes-qq-openclaw_qwen-vision-model-cache"
+    replace_env_value QWEN_MODEL_CACHE_EXTERNAL "false"
+fi
 
 gateway_token=$(env_value OPENCLAW_GATEWAY_TOKEN)
 if [ -z "$gateway_token" ] || [ "$gateway_token" = "replace-with-a-random-token" ]; then
@@ -81,7 +95,7 @@ if [ -z "$gateway_token" ] || [ "$gateway_token" = "replace-with-a-random-token"
     replace_env_value OPENCLAW_GATEWAY_TOKEN "$(openssl rand -hex 32)"
 fi
 
-for key in QQBOT_APP_ID QQBOT_CLIENT_SECRET QQBOT_ALLOWED_USER_OPENID QQBOT_ALLOWED_MEMBER_OPENID SENSENOVA_API_KEY HERMES_DEEPSEEK_API_KEY; do
+for key in QQBOT_APP_ID QQBOT_CLIENT_SECRET QQBOT_ALLOWED_USER_OPENID QQBOT_ALLOWED_MEMBER_OPENID SENSENOVA_API_KEY; do
     require_configured "$key"
 done
 
@@ -104,7 +118,8 @@ done
 chmod 600 "$RUNTIME_DIR/config/openclaw.json" "$RUNTIME_DIR/workspace/AGENTS.md" "$RUNTIME_DIR/workspace/SOUL.md"
 
 cd "$SCRIPT_DIR"
-compose pull openclaw-gateway openclaw-cli
+compose pull openclaw-gateway openclaw-cli qwen-vision
+compose run --rm --no-deps qq-diagnostic-filter-init
 
 if ! compose run --rm --no-deps openclaw-cli plugins inspect qqbot --json >/dev/null 2>&1; then
     plugin_spec=$(env_value OPENCLAW_QQBOT_PLUGIN)
@@ -112,7 +127,31 @@ if ! compose run --rm --no-deps openclaw-cli plugins inspect qqbot --json >/dev/
 fi
 
 compose run --rm --no-deps openclaw-cli config validate
-compose up -d openclaw-gateway
-compose ps openclaw-gateway
+compose up -d qwen-vision
+
+qwen_ready=0
+qwen_model_list=''
+for attempt in $(seq 1 30); do
+    if qwen_model_list=$(compose exec -T qwen-vision ollama list 2>/dev/null); then
+        qwen_ready=1
+        break
+    fi
+    sleep 2
+done
+if [ "$qwen_ready" -ne 1 ]; then
+    echo 'The OpenClaw qwen-vision service did not become ready.' >&2
+    exit 1
+fi
+if ! printf '%s\n' "$qwen_model_list" | grep -q '^qwen2\.5vl:7b[[:space:]]'; then
+    compose exec -T qwen-vision ollama pull qwen2.5vl:7b
+fi
+legacy_image=$(docker inspect --format '{{.Config.Image}}' hermes-vision 2>/dev/null || true)
+case "$legacy_image" in
+    ollama/ollama:*) docker rm -f hermes-vision >/dev/null ;;
+esac
+compose up -d openclaw-gateway context-recovery
+compose ps openclaw-gateway context-recovery
 
 printf '\nOpenClaw QQ Bot is running at http://127.0.0.1:%s\n' "$(env_value OPENCLAW_GATEWAY_PORT)"
+printf 'Mage-VL video API is exposed locally at http://127.0.0.1:%s\n' "$(env_value MAGE_VIDEO_PORT)"
+printf 'LocateAnything + Qwen image API is exposed locally at http://127.0.0.1:%s\n' "$(env_value NVIDIA_IMAGE_PORT)"

@@ -1,0 +1,124 @@
+services:
+  qwen-vision:
+    image: ${QWEN_IMAGE:-ollama/ollama:0.32.5}
+    restart: unless-stopped
+    gpus: all
+    ipc: host
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_KEEP_ALIVE: "0"
+    volumes:
+      - qwen-vision-model-cache:/root/.ollama
+    command: ["serve"]
+    healthcheck:
+      test:
+        - CMD
+        - ollama
+        - list
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  video-bridge:
+    build:
+      context: ./video-bridge
+      args:
+        BASE_IMAGE: ${MAGE_VIDEO_BASE_IMAGE:-vllm/vllm-openai:latest}
+    restart: unless-stopped
+    init: true
+    gpus: all
+    ipc: host
+    shm_size: "16gb"
+    ports:
+      - "127.0.0.1:${MAGE_VIDEO_PORT:-30000}:8080"
+    environment:
+      MODEL_ID: ${MAGE_MODEL_ID:-microsoft/Mage-VL}
+      HF_HOME: /root/.cache/huggingface
+      HUGGINGFACE_HUB_CACHE: /root/.cache/huggingface/hub
+      HF_TOKEN: ${HF_TOKEN:-}
+      MAX_UPLOAD_BYTES: ${MAGE_MAX_UPLOAD_BYTES:-52428800}
+      DEFAULT_NUM_FRAMES: ${MAGE_VIDEO_NUM_FRAMES:-16}
+      MAX_NEW_TOKENS: ${MAGE_MAX_NEW_TOKENS:-512}
+      SEGMENT_SECONDS: ${MAGE_VIDEO_SEGMENT_SECONDS:-60}
+      MAX_SEGMENTS: ${MAGE_VIDEO_MAX_SEGMENTS:-12}
+      GPU_LOCK_PATH: /run/ai-lock/gpu.lock
+    volumes:
+      - mage-vl-hf-cache:/root/.cache/huggingface
+      - ai-gpu-lock:/run/ai-lock
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  image-fusion:
+    build:
+      context: ./image-fusion
+      args:
+        BASE_IMAGE: ${NVIDIA_IMAGE_BASE_IMAGE:-vllm/vllm-openai:latest}
+    restart: unless-stopped
+    init: true
+    gpus: all
+    ipc: host
+    shm_size: "16gb"
+    ports:
+      - "127.0.0.1:${NVIDIA_IMAGE_PORT:-30001}:8080"
+    environment:
+      LOCATE_MODEL_ID: ${NVIDIA_IMAGE_MODEL_ID:-nvidia/LocateAnything-3B}
+      HF_HOME: /root/.cache/huggingface
+      HUGGINGFACE_HUB_CACHE: /root/.cache/huggingface/hub
+      HF_TOKEN: ${HF_TOKEN:-}
+      QWEN_BASE_URL: ${QWEN_BASE_URL:-http://qwen-vision:11434}
+      QWEN_MODEL_ID: ${QWEN_MODEL_ID:-qwen2.5vl:7b}
+      MAX_UPLOAD_BYTES: ${NVIDIA_IMAGE_MAX_UPLOAD_BYTES:-20971520}
+      MAX_NEW_TOKENS: ${NVIDIA_IMAGE_MAX_NEW_TOKENS:-1024}
+      QWEN_TIMEOUT_SECONDS: ${QWEN_TIMEOUT_SECONDS:-300}
+      GPU_LOCK_PATH: /run/ai-lock/gpu.lock
+    volumes:
+      - mage-vl-hf-cache:/root/.cache/huggingface
+      - ai-gpu-lock:/run/ai-lock
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  openclaw-gateway:
+    depends_on:
+      qwen-vision:
+        condition: service_healthy
+      video-bridge:
+        condition: service_healthy
+      image-fusion:
+        condition: service_healthy
+    volumes:
+      - ./video-bridge/mage-video-cli.mjs:/opt/openclaw-local/mage-video-cli.mjs:ro
+      - ./image-fusion/nvidia-image-cli.mjs:/opt/openclaw-local/nvidia-image-cli.mjs:ro
+
+  openclaw-cli:
+    volumes:
+      - ./video-bridge/mage-video-cli.mjs:/opt/openclaw-local/mage-video-cli.mjs:ro
+      - ./image-fusion/nvidia-image-cli.mjs:/opt/openclaw-local/nvidia-image-cli.mjs:ro
+
+volumes:
+  # These caches are retained across the project-name migration.
+  mage-vl-hf-cache:
+    name: hermes-qq-openclaw_mage-vl-hf-cache
+  ai-gpu-lock:
+    name: hermes-qq-openclaw_ai-gpu-lock
+  qwen-vision-model-cache:
+    name: ${QWEN_MODEL_CACHE_VOLUME:-hermes-qq-openclaw_qwen-vision-model-cache}
+    external: ${QWEN_MODEL_CACHE_EXTERNAL:-false}
