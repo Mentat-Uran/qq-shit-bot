@@ -18,7 +18,7 @@
     "defaults": {
       "workspace": "/home/node/.openclaw/workspace",
       "contextTokens": 65536,
-      "timeoutSeconds": 300,
+      "timeoutSeconds": 900,
       "utilityModel": "",
       "model": {
         "primary": "sensenova-token/deepseek-v4-flash",

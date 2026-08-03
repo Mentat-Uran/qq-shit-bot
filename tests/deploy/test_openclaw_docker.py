@@ -51,6 +51,7 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
 
     defaults = config["agents"]["defaults"]
     assert defaults["contextTokens"] == 65536
+    assert defaults["timeoutSeconds"] == 900
     assert defaults["utilityModel"] == ""
     assert defaults["imageModel"] == "local-vision/qwen2.5vl:7b"
     assert defaults["compaction"]["mode"] == "safeguard"

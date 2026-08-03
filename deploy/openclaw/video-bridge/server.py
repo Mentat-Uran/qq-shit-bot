@@ -39,7 +39,7 @@ _model_lock = Lock()
 @contextmanager
 def gpu_lock():
     GPU_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with GPU_LOCK_PATH.open("a+") as handle:
+    with GPU_LOCK_PATH.open("a+", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             yield
