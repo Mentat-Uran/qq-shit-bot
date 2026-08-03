@@ -23,7 +23,7 @@ try {
   form.append("video", new Blob([bytes], { type: "video/mp4" }), basename(mediaPath));
   form.append("prompt", prompt);
   form.append("max_chars", maxChars);
-  form.append("num_frames", process.env.MAGE_VIDEO_NUM_FRAMES || "16");
+  form.append("num_frames", process.env.MAGE_VIDEO_NUM_FRAMES || "8");
 
   const response = await fetch(bridgeUrl, { method: "POST", body: form });
   const payload = await response.json().catch(() => ({}));

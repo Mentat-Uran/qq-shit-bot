@@ -20,6 +20,7 @@ x-openclaw-common: &openclaw-common
     TZ: ${OPENCLAW_TZ:-Asia/Shanghai}
   volumes:
     - ./runtime/config:/home/node/.openclaw
+    - openclaw-state:/home/node/.openclaw/state
     - ./runtime/workspace:/home/node/.openclaw/workspace
     - qq-diagnostic-filter:/opt/openclaw-local
     - openclaw-logs:/tmp/openclaw
@@ -31,6 +32,36 @@ x-openclaw-common: &openclaw-common
   init: true
 
 services:
+  qwen-vision:
+    image: ${QWEN_IMAGE:-ollama/ollama:0.32.5}
+    restart: unless-stopped
+    gpus: all
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      # Keep Qwen warm briefly so consecutive image replies do not reload the
+      # 7B model from host memory on every message; the bounded value releases
+      # it again during idle periods.
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-3m}
+      OLLAMA_FLASH_ATTENTION: "1"
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - qwen-vision-model-cache:/root/.ollama
+    command: ["serve"]
+    mem_limit: ${QWEN_MEMORY_LIMIT:-6g}
+    cpus: ${QWEN_CPUS:-2.0}
+    healthcheck:
+      test:
+        - CMD
+        - ollama
+        - list
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   qq-diagnostic-filter-init:
     image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
     user: "0:0"
@@ -40,10 +71,11 @@ services:
       - ./qq-diagnostic-filter.mjs:/seed/qq-diagnostic-filter.mjs:ro
       - ./openclaw.plugin.json:/seed/openclaw.plugin.json:ro
       - ./qqbot-history-media-patch.mjs:/seed/qqbot-history-media-patch.mjs:ro
+      - ./web-search-patch.mjs:/seed/web-search-patch.mjs:ro
       - ./context-recovery.mjs:/seed/context-recovery.mjs:ro
     entrypoint: ["sh", "-c"]
     command:
-      - "mkdir -p /tmp/openclaw && chown ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /tmp/openclaw && cp /seed/qq-diagnostic-filter.mjs /opt/openclaw-local/qq-diagnostic-filter.mjs && cp /seed/openclaw.plugin.json /opt/openclaw-local/openclaw.plugin.json && cp /seed/qqbot-history-media-patch.mjs /opt/openclaw-local/qqbot-history-media-patch.mjs && cp /seed/context-recovery.mjs /opt/openclaw-local/context-recovery.mjs && chmod 0644 /opt/openclaw-local/qq-diagnostic-filter.mjs /opt/openclaw-local/openclaw.plugin.json /opt/openclaw-local/qqbot-history-media-patch.mjs /opt/openclaw-local/context-recovery.mjs"
+      - "mkdir -p /tmp/openclaw && chown ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /tmp/openclaw && cp /seed/qq-diagnostic-filter.mjs /opt/openclaw-local/qq-diagnostic-filter.mjs && cp /seed/openclaw.plugin.json /opt/openclaw-local/openclaw.plugin.json && cp /seed/qqbot-history-media-patch.mjs /opt/openclaw-local/qqbot-history-media-patch.mjs && cp /seed/web-search-patch.mjs /opt/openclaw-local/web-search-patch.mjs && cp /seed/context-recovery.mjs /opt/openclaw-local/context-recovery.mjs && chmod 0644 /opt/openclaw-local/qq-diagnostic-filter.mjs /opt/openclaw-local/openclaw.plugin.json /opt/openclaw-local/qqbot-history-media-patch.mjs /opt/openclaw-local/web-search-patch.mjs /opt/openclaw-local/context-recovery.mjs"
     restart: "no"
 
   openclaw-gateway:
@@ -58,7 +90,7 @@ services:
       - sh
       - -c
       - >-
-        node /opt/openclaw-local/qqbot-history-media-patch.mjs && exec node
+        node /opt/openclaw-local/web-search-patch.mjs && node /opt/openclaw-local/qqbot-history-media-patch.mjs && exec node
         dist/index.js gateway --bind lan --port 18789 2>&1 | tee -a
         /tmp/openclaw/gateway.log
     healthcheck:
@@ -98,3 +130,8 @@ volumes:
     name: hermes-qq-openclaw_qq-diagnostic-filter
   openclaw-logs:
     name: hermes-qq-openclaw_openclaw-logs
+  openclaw-state:
+    name: hermes-qq-openclaw_openclaw-state
+  qwen-vision-model-cache:
+    name: ${QWEN_MODEL_CACHE_VOLUME:-hermes-qq-openclaw_qwen-vision-model-cache}
+    external: ${QWEN_MODEL_CACHE_EXTERNAL:-false}

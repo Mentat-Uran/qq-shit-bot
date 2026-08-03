@@ -3,6 +3,9 @@ import path from "node:path";
 
 const PATCH_MARKER = "/* hermes-qq-history-media-v1 */";
 const MEDIA_CAPABILITY_MARKER = "/* hermes-qq-media-capabilities-v1 */";
+const VIDEO_MENTION_GATE_MARKER = "/* hermes-qq-video-mention-gate-v2 */";
+const LEGACY_VIDEO_MENTION_GATE_MARKER = "/* hermes-qq-video-mention-gate-v1 */";
+const HISTORICAL_MEDIA_DISABLED_MARKER = "/* hermes-qq-historical-media-disabled-v2 */";
 const MEDIA_CAPABILITIES_PATH = "/home/node/.openclaw/media-capabilities.json";
 const stateDir = process.env.OPENCLAW_STATE_DIR || "/home/node/.openclaw";
 const projectsDir = path.join(stateDir, "npm", "projects");
@@ -45,8 +48,6 @@ function replaceOnce(source, label, before, after) {
 }
 
 function upgradeMediaCapabilityGate(source) {
-  if (source.includes(MEDIA_CAPABILITY_MARKER)) return source;
-
   const helper = `function readMediaCapabilities() {
 	try {
 		const value = JSON.parse(fs$1.readFileSync("${MEDIA_CAPABILITIES_PATH}", "utf8"));
@@ -69,26 +70,83 @@ function filterMediaByCapability(processed) {
 
 ${MEDIA_CAPABILITY_MARKER}
 `;
-  source = source.replace(`${PATCH_MARKER}\n`, `${helper}${PATCH_MARKER}\n`);
-  source = replaceOnce(
-    source,
-    "direct-media-capability-filter",
-    `\tlet { parsedContent, userContent } = buildUserContent({`,
-    `\tprocessed = filterMediaByCapability(processed);\n\tlet { parsedContent, userContent } = buildUserContent({`,
-  );
-  source = replaceOnce(
-    source,
-    "historical-media-capability-filter",
-    `\t\tif (historicalMedia) {\n\t\t\tprocessed = promoteHistoricalMedia(processed, historicalMedia);\n\t\t\tconst mediaLabel = historicalMedia.type === "video" ? "video" : "image";\n\t\t\tuserContent = [userContent, "[historical " + mediaLabel + ": " + (historicalMedia.filename ?? historicalMedia.messageId ?? "unnamed media") + "]"].filter(Boolean).join("\\n");\n\t\t\tlog?.info?.("QQ historical " + historicalMedia.type + " promoted for @mention");\n\t\t}`,
-    `\t\tconst mediaCapabilities = readMediaCapabilities();\n\t\tif (historicalMedia && mediaCapabilities[historicalMedia.type] === true) {\n\t\t\tprocessed = promoteHistoricalMedia(processed, historicalMedia);\n\t\t\tconst mediaLabel = historicalMedia.type === "video" ? "video" : "image";\n\t\t\tuserContent = [userContent, "[historical " + mediaLabel + ": " + (historicalMedia.filename ?? historicalMedia.messageId ?? "unnamed media") + "]"].filter(Boolean).join("\\n");\n\t\t\tlog?.info?.("QQ historical " + historicalMedia.type + " promoted for @mention");\n\t\t} else if (historicalMedia) {\n\t\t\tconst mediaLabel = historicalMedia.type === "video" ? "video" : "image";\n\t\t\tuserContent = [userContent, "[" + mediaLabel + " unavailable: the corresponding local service is disabled]"] .filter(Boolean).join("\\n");\n\t\t\tlog?.info?.("QQ historical " + historicalMedia.type + " blocked because its local service is disabled");\n\t\t}`,
-  );
+  const videoHelper = `function filterVideoByMention(processed, allowVideo) {
+	if (allowVideo) return processed;
+	return {
+		...processed,
+		videoAttachmentPaths: [],
+		videoAttachmentTypes: []
+	};
+}
+
+${VIDEO_MENTION_GATE_MARKER}
+`;
+  const existingVideoGateCall = /\n\t\/\* hermes-qq-video-mention-gate-v[12] \*\/\n\tprocessed = filterVideoByMention\(\n\t\tprocessed,\n\t\t!event\?\.groupOpenid \|\| groupInfo\?\.gate\?\.effectiveWasMentioned === true,\n\t\);\n/g;
+  source = source.replace(existingVideoGateCall, "\n");
+  if (!source.includes(MEDIA_CAPABILITY_MARKER)) {
+    source = source.replace(`${PATCH_MARKER}\n`, `${helper}${PATCH_MARKER}\n`);
+  }
+  if (!source.includes("function filterVideoByMention(processed, allowVideo)")) {
+    source = source.replace(
+      `${MEDIA_CAPABILITY_MARKER}\n`,
+      `${videoHelper}${MEDIA_CAPABILITY_MARKER}\n`,
+    );
+  } else {
+    source = source.replaceAll(LEGACY_VIDEO_MENTION_GATE_MARKER, VIDEO_MENTION_GATE_MARKER);
+  }
+  const userContentPrefix = source.includes(`\tlet { parsedContent, userContent } = buildUserContent({`)
+    ? `\tlet { parsedContent, userContent } = buildUserContent({`
+    : `\tconst { parsedContent, userContent } = buildUserContent({`;
+  if (!source.includes("processed = filterMediaByCapability(processed);")) {
+    source = replaceOnce(
+      source,
+      "direct-media-capability-filter",
+      userContentPrefix,
+      `\tprocessed = filterMediaByCapability(processed);\n${userContentPrefix}`,
+    );
+  }
+  if (!source.includes("processed = filterVideoByMention(")) {
+    source = replaceOnce(
+      source,
+      "video-gate-after-group-info",
+      `\t}\n\t/* ${HISTORICAL_MEDIA_DISABLED_MARKER.slice(3, -3)} */`,
+      `\t}
+\t${VIDEO_MENTION_GATE_MARKER}
+\tprocessed = filterVideoByMention(
+\t\tprocessed,
+\t\t!event?.groupOpenid || groupInfo?.gate?.effectiveWasMentioned === true,
+\t);
+\t/* ${HISTORICAL_MEDIA_DISABLED_MARKER.slice(3, -3)} */`,
+    );
+  }
   return source;
+}
+
+function disableHistoricalMediaPromotion(source) {
+  if (source.includes(HISTORICAL_MEDIA_DISABLED_MARKER)) return source;
+
+  const historicalBlock = /\n\tif \(groupInfo\?\.gate\?\.effectiveWasMentioned && !event\.attachments\?\.length && event\.groupOpenid\) \{[\s\S]*?\n\t\}\n\tconst body = buildBody\(\{/;
+  if (historicalBlock.test(source)) {
+    return source.replace(
+      historicalBlock,
+      `\n\t${HISTORICAL_MEDIA_DISABLED_MARKER}\n\tconst body = buildBody({`,
+    );
+  }
+
+  if (source.includes("resolveLatestHistoricalMedia") || source.includes("promoteHistoricalMedia")) {
+    throw new Error("QQ history-media patch found an unexpected historical-media block");
+  }
+
+  return source.replace(
+    "async function buildInboundContext(event, deps) {",
+    `${HISTORICAL_MEDIA_DISABLED_MARKER}\nasync function buildInboundContext(event, deps) {`,
+  );
 }
 
 function patchBundle(file) {
   let source = fs.readFileSync(file, "utf8");
   if (source.includes(PATCH_MARKER)) {
-    const upgraded = upgradeMediaCapabilityGate(source);
+    const upgraded = upgradeMediaCapabilityGate(disableHistoricalMediaPromotion(source));
     if (upgraded === source) return false;
     const tempFile = `${file}.hermes-history-media.tmp`;
     fs.writeFileSync(tempFile, upgraded, "utf8");
@@ -134,9 +192,9 @@ function patchBundle(file) {
   );
   source = replaceOnce(
     source,
-    "historical-helper",
+    "history-marker",
     `async function buildInboundContext(event, deps) {`,
-    `const HISTORICAL_MEDIA_MAX_AGE_MS = 15 * 60 * 1000;\n\nfunction resolveLatestHistoricalMedia(params) {\n\tconst entries = params.historyMap?.get(params.groupOpenid);\n\tif (!entries?.length) return null;\n\tconst now = Date.now();\n\tfor (let entryIndex = entries.length - 1; entryIndex >= 0; entryIndex--) {\n\t\tconst entry = entries[entryIndex];\n\t\tif (Number.isFinite(entry.timestamp) && now - entry.timestamp > HISTORICAL_MEDIA_MAX_AGE_MS) continue;\n\t\tconst attachments = entry.attachments ?? [];\n\t\tfor (let attachmentIndex = attachments.length - 1; attachmentIndex >= 0; attachmentIndex--) {\n\t\t\tconst attachment = attachments[attachmentIndex];\n\t\t\tif (attachment.type !== "image" && attachment.type !== "video") continue;\n\t\t\tconst localPath = attachment.localPath;\n\t\t\tif (!localPath || !fs$1.existsSync(localPath)) continue;\n\t\t\treturn {\n\t\t\t\ttype: attachment.type,\n\t\t\t\tfilename: attachment.filename,\n\t\t\t\tlocalPath,\n\t\t\t\tcontentType: attachment.type === "video" ? "video/mp4" : "image/jpeg",\n\t\t\t\tmessageId: entry.messageId\n\t\t\t};\n\t\t}\n\t}\n\treturn null;\n}\n\nfunction promoteHistoricalMedia(processed, media) {\n\tconst attachmentLocalPaths = [...processed.attachmentLocalPaths, media.localPath];\n\tif (media.type === "video") return {\n\t\t...processed,\n\t\tattachmentLocalPaths,\n\t\tvideoAttachmentPaths: [...(processed.videoAttachmentPaths ?? []), media.localPath],\n\t\tvideoAttachmentTypes: [...(processed.videoAttachmentTypes ?? []), media.contentType]\n\t};\n\treturn {\n\t\t...processed,\n\t\tattachmentLocalPaths,\n\t\timageUrls: [...processed.imageUrls, media.localPath],\n\t\timageMediaTypes: [...processed.imageMediaTypes, media.contentType]\n\t};\n}\n\n/* hermes-qq-history-media-v1 */\nasync function buildInboundContext(event, deps) {`,
+    `${PATCH_MARKER}\n${HISTORICAL_MEDIA_DISABLED_MARKER}\nasync function buildInboundContext(event, deps) {`,
   );
   source = replaceOnce(
     source,
@@ -144,18 +202,7 @@ function patchBundle(file) {
     `\tconst processed = await processAttachments(event.attachments, {`,
     `\tlet processed = await processAttachments(event.attachments, {`,
   );
-  source = replaceOnce(
-    source,
-    "mutable-user-content",
-    `\tconst { parsedContent, userContent } = buildUserContent({`,
-    `\tlet { parsedContent, userContent } = buildUserContent({`,
-  );
-  source = replaceOnce(
-    source,
-    "promote-after-gate",
-    `\t\tgroupInfo = gateOutcome.groupInfo;\n\t}\n\tconst body = buildBody({`,
-    `\t\tgroupInfo = gateOutcome.groupInfo;\n\t}\n\tif (groupInfo?.gate?.effectiveWasMentioned && !event.attachments?.length && event.groupOpenid) {\n\t\tconst historicalMedia = resolveLatestHistoricalMedia({\n\t\t\thistoryMap: deps.groupHistories,\n\t\t\tgroupOpenid: event.groupOpenid\n\t\t});\n\t\tif (historicalMedia) {\n\t\t\tprocessed = promoteHistoricalMedia(processed, historicalMedia);\n\t\t\tconst mediaLabel = historicalMedia.type === "video" ? "video" : "image";\n\t\t\tuserContent = [userContent, "[historical " + mediaLabel + ": " + (historicalMedia.filename ?? historicalMedia.messageId ?? "unnamed media") + "]"].filter(Boolean).join("\\n");\n\t\t\tlog?.info?.("QQ historical " + historicalMedia.type + " promoted for @mention");\n\t\t}\n\t}\n\tconst body = buildBody({`,
-  );
+  source = upgradeMediaCapabilityGate(source);
 
   const tempFile = `${file}.hermes-history-media.tmp`;
   fs.writeFileSync(tempFile, source, "utf8");
@@ -166,4 +213,4 @@ function patchBundle(file) {
 const bundle = findGatewayBundle();
 if (!bundle) throw new Error("QQ history-media patch: installed @openclaw/qqbot gateway bundle was not found");
 const changed = patchBundle(bundle);
-console.log(`${changed ? "Applied" : "Already applied"} QQ historical media promotion: ${bundle}`);
+console.log(`${changed ? "Applied" : "Already applied"} QQ media attachment safety patch: ${bundle}`);

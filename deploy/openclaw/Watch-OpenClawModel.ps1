@@ -86,7 +86,7 @@ while ($true) {
         $primary = Get-OpenClawPrimary
         $probe = Invoke-SenseNovaProbe
         if ($primary -eq 'sensenova-token/deepseek-v4-flash' -and $probe.StatusCode -eq 429) {
-            Write-Host 'SenseNova quota probe returned 429; no paid fallback is configured, so OpenClaw remains on SenseNova.'
+            Write-Host 'SenseNova quota probe returned 429; OpenClaw will use the configured official DeepSeek fallback for failed requests.'
         }
     } catch {
         Write-Host 'OpenClaw model route check failed; retrying on the next interval.'

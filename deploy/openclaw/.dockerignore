@@ -1,0 +1,10 @@
+.env
+.env.*
+runtime/
+node_modules/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.bak
+*.log
+.git/

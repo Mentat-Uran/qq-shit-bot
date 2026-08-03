@@ -30,6 +30,37 @@ MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "1024"))
 QWEN_TIMEOUT_SECONDS = float(os.getenv("QWEN_TIMEOUT_SECONDS", "300"))
 GPU_LOCK_PATH = Path(os.getenv("GPU_LOCK_PATH", "/run/ai-lock/gpu.lock"))
+MODEL_DEVICE = os.getenv("MODEL_DEVICE", "cuda:0")
+MODEL_DTYPE_NAME = os.getenv("MODEL_DTYPE", "float16").lower()
+
+
+def model_dtype() -> torch.dtype:
+    if MODEL_DTYPE_NAME in {"bf16", "bfloat16"}:
+        return torch.bfloat16
+    if MODEL_DTYPE_NAME in {"fp32", "float32"}:
+        return torch.float32
+    return torch.float16
+
+
+def require_cuda() -> None:
+    if not torch.cuda.is_available() or not MODEL_DEVICE.startswith("cuda"):
+        raise RuntimeError(
+            f"LocateAnything requires CUDA; available={torch.cuda.is_available()} device={MODEL_DEVICE}"
+        )
+
+
+def assert_model_on_cuda(model: Any) -> None:
+    devices = {str(parameter.device) for parameter in model.parameters()}
+    if not devices or any(not device.startswith("cuda") for device in devices):
+        raise RuntimeError(
+            f"LocateAnything refused CPU offload; model devices={sorted(devices)}"
+        )
+
+
+def model_devices(model: Any | None) -> list[str]:
+    if model is None:
+        return []
+    return sorted({str(parameter.device) for parameter in model.parameters()})
 
 _locator: Any | None = None
 _tokenizer: Any | None = None
@@ -56,6 +87,7 @@ def get_locator() -> tuple[Any, Any, Any]:
 
     with _locator_lock:
         if _locator is None or _tokenizer is None or _processor is None:
+            require_cuda()
             _tokenizer = AutoTokenizer.from_pretrained(
                 LOCATE_MODEL_ID, trust_remote_code=True, cache_dir=HF_HOME
             )
@@ -64,11 +96,13 @@ def get_locator() -> tuple[Any, Any, Any]:
             )
             _locator = AutoModel.from_pretrained(
                 LOCATE_MODEL_ID,
-                torch_dtype=torch.bfloat16,
+                torch_dtype=model_dtype(),
                 trust_remote_code=True,
-                device_map="auto",
+                device_map={"": MODEL_DEVICE},
+                low_cpu_mem_usage=True,
                 cache_dir=HF_HOME,
             ).eval()
+            assert_model_on_cuda(_locator)
     return _locator, _tokenizer, _processor
 
 
@@ -79,6 +113,9 @@ def healthz() -> dict[str, Any]:
         "model": LOCATE_MODEL_ID,
         "locatorLoaded": _locator is not None,
         "qwen": QWEN_MODEL_ID,
+        "cudaAvailable": torch.cuda.is_available(),
+        "modelDevice": MODEL_DEVICE,
+        "loadedDevices": model_devices(_locator),
     }
 
 
@@ -106,6 +143,7 @@ async def save_upload(upload: UploadFile, destination: Path) -> int:
 def locate_image(path: Path, prompt: str, max_chars: int) -> str:
     with gpu_lock():
         model, tokenizer, processor = get_locator()
+        response = inputs = images = videos = image = None
         try:
             image = Image.open(path).convert("RGB")
             messages = [
@@ -123,9 +161,9 @@ def locate_image(path: Path, prompt: str, max_chars: int) -> str:
             images, videos = processor.process_vision_info(messages)
             inputs = processor(
                 text=[text], images=images, videos=videos, return_tensors="pt"
-            ).to("cuda")
+            ).to(MODEL_DEVICE)
             if "pixel_values" in inputs and inputs["pixel_values"].is_floating_point():
-                inputs["pixel_values"] = inputs["pixel_values"].to(torch.bfloat16)
+                inputs["pixel_values"] = inputs["pixel_values"].to(model_dtype())
             with torch.inference_mode():
                 response = model.generate(
                     pixel_values=inputs.get("pixel_values"),
@@ -147,6 +185,8 @@ def locate_image(path: Path, prompt: str, max_chars: int) -> str:
             return str(answer).strip()[:max_chars]
         finally:
             # Keep only one heavyweight vision model resident on the 16 GiB GPU.
+            del response, inputs, images, videos, image
+            del model, tokenizer, processor
             unload_locator()
 
 
@@ -157,7 +197,9 @@ def unload_locator() -> None:
     _processor = None
     gc.collect()
     if torch.cuda.is_available():
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
 
 def ask_qwen(path: Path, prompt: str, max_chars: int) -> str:

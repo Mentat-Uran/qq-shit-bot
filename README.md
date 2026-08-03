@@ -35,7 +35,7 @@ cp .env.example .env
 ./setup.sh
 ```
 
-该方案默认复用本仓库的 `AGENTS.md`、`SOUL.md`、SenseNova 主模型与 DeepSeek fallback，并关闭 OpenClaw 终端及文件/命令工具。完整配置、安全边界与 Windows 使用方式见 [`deploy/openclaw/README.md`](deploy/openclaw/README.md)。
+该方案默认复用本仓库的 `AGENTS.md`、`SOUL.md`、SenseNova 主模型与 DeepSeek fallback，并关闭 OpenClaw 终端及文件/命令工具。Windows 直接运行 [`scripts/windows/Start-OpenClawQQBot.bat`](scripts/windows/Start-OpenClawQQBot.bat)；完整配置、安全边界与运行方式见 [`deploy/openclaw/README.md`](deploy/openclaw/README.md)。
 
 ## 模型额度切换
 
