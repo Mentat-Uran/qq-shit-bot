@@ -2,11 +2,19 @@
 param(
     [switch]$NoWatcher,
     [switch]$NoVision,
-    [switch]$NoVideo
+    [switch]$NoVideo,
+    [switch]$AllMedia
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+if ($NoVideo) {
+    $AllMedia = $false
+}
+if ($AllMedia -and $NoVision) {
+    throw 'AllMedia requires the Qwen image service; remove -NoVision.'
+}
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $composeFiles = [System.Collections.Generic.List[string]]::new()
@@ -14,7 +22,7 @@ $composeFiles.Add('-f')
 $composeFiles.Add((Join-Path $scriptDir 'docker-compose.yml'))
 $composeFiles.Add('-f')
 $composeFiles.Add((Join-Path $scriptDir 'docker-compose.local.yml'))
-if (-not $NoVideo) {
+if ($AllMedia) {
     $composeFiles.Add('-f')
     $composeFiles.Add((Join-Path $scriptDir 'docker-compose.video.yml'))
 }
@@ -26,6 +34,7 @@ $sourceConfig = Join-Path $scriptDir 'openclaw.json'
 $runtimeConfig = Join-Path $configDir 'openclaw.json'
 $hermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:LOCALAPPDATA 'hermes' }
 $hermesEnvFile = Join-Path $hermesHome '.env'
+$deepSeekSecretFile = Join-Path $hermesHome 'secrets\deepseek-api-key.dpapi'
 $legacyVisionVolume = 'local-vision_hermes-vision-model-cache'
 
 function Get-DotEnvValue {
@@ -96,6 +105,8 @@ function Set-RuntimeEnvironment {
         Set-Item -Path ("Env:{0}" -f $target) -Value $value
     }
 
+    Set-OptionalDeepSeekRuntimeKey
+
     $plugin = Get-DotEnvValue -Path $envFile -Name 'OPENCLAW_QQBOT_PLUGIN'
     $env:OPENCLAW_QQBOT_PLUGIN = if ($plugin) { $plugin } else { '@openclaw/qqbot@2026.7.1' }
 
@@ -117,6 +128,43 @@ function Set-RuntimeEnvironment {
         Set-DotEnvValue -Path $envFile -Name 'OPENCLAW_GATEWAY_TOKEN' -Value $env:OPENCLAW_GATEWAY_TOKEN
     }
     $env:OPENCLAW_GATEWAY_PORT = if ($env:OPENCLAW_GATEWAY_PORT) { $env:OPENCLAW_GATEWAY_PORT } else { '18789' }
+}
+
+function Set-OptionalDeepSeekRuntimeKey {
+    if (-not [string]::IsNullOrWhiteSpace($env:DEEPSEEK_API_KEY) -and $env:DEEPSEEK_API_KEY -notlike 'replace-with-*') {
+        return $true
+    }
+
+    $dotenvValue = Get-DotEnvValue -Path $hermesEnvFile -Name 'DEEPSEEK_API_KEY'
+    if (-not [string]::IsNullOrWhiteSpace($dotenvValue) -and $dotenvValue -notlike 'replace-with-*') {
+        Set-Item -Path 'Env:DEEPSEEK_API_KEY' -Value $dotenvValue
+        return $true
+    }
+
+    if (-not (Test-Path -LiteralPath $deepSeekSecretFile -PathType Leaf)) {
+        return $false
+    }
+
+    try {
+        $encryptedValue = (Get-Content -LiteralPath $deepSeekSecretFile -Raw -Encoding utf8).Trim()
+        $secureValue = ConvertTo-SecureString -String $encryptedValue
+        $pointer = [IntPtr]::Zero
+        try {
+            $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureValue)
+            $plainValue = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+            if ([string]::IsNullOrWhiteSpace($plainValue)) {
+                return $false
+            }
+            Set-Item -Path 'Env:DEEPSEEK_API_KEY' -Value $plainValue
+            return $true
+        } finally {
+            if ($pointer -ne [IntPtr]::Zero) {
+                [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+            }
+        }
+    } catch {
+        return $false
+    }
 }
 
 function Invoke-Compose {
@@ -170,7 +218,7 @@ function Remove-LegacyVisionContainer {
 }
 
 function Ensure-QwenService {
-    if ($NoVideo) {
+    if ($NoVision) {
         return
     }
     Invoke-Compose -Arguments @('up', '-d', 'qwen-vision')
@@ -323,7 +371,7 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     throw "Local OpenClaw env file is missing: $envFile"
 }
-if (-not $NoVideo -and -not (Test-Path -LiteralPath (Join-Path $scriptDir 'docker-compose.video.yml') -PathType Leaf)) {
+if ($AllMedia -and -not (Test-Path -LiteralPath (Join-Path $scriptDir 'docker-compose.video.yml') -PathType Leaf)) {
     throw 'The Mage-VL and image-fusion compose file is missing.'
 }
 
@@ -334,7 +382,11 @@ Ensure-RuntimeFiles
 Push-Location $scriptDir
 try {
     Invoke-Compose -Arguments @('config', '--quiet')
-    Invoke-Compose -Arguments @('pull', 'openclaw-gateway', 'openclaw-cli', 'qwen-vision')
+    $pullServices = @('openclaw-gateway', 'openclaw-cli')
+    if (-not $NoVision) {
+        $pullServices += 'qwen-vision'
+    }
+    Invoke-Compose -Arguments (@('pull') + $pullServices)
     Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'qq-diagnostic-filter-init')
 
     $previousErrorAction = $ErrorActionPreference
@@ -349,12 +401,18 @@ try {
         Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'plugins', 'install', $env:OPENCLAW_QQBOT_PLUGIN, '--force', '--pin')
     }
     Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'config', 'validate')
-    $mediaMode = if ($NoVideo -or $NoVision) { 'none' } else { 'both' }
+    $mediaMode = if ($NoVision) { 'none' } elseif ($AllMedia) { 'both' } else { 'image' }
     & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'Set-OpenClawMediaCapabilities.ps1') -Mode $mediaMode
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to set OpenClaw media capabilities with exit code $LASTEXITCODE."
     }
     Ensure-QwenService
+
+    if ($AllMedia) {
+        # This is an explicit opt-in because both heavyweight bridges share
+        # the GPU and may each load several gigabytes of model/runtime state.
+        Invoke-Compose -Arguments @('up', '-d', 'video-bridge', 'image-fusion')
+    }
 
     $portInUse = Get-NetTCPConnection -LocalPort ([int]$env:OPENCLAW_GATEWAY_PORT) -State Listen -ErrorAction SilentlyContinue
     if ($portInUse) {
@@ -374,8 +432,10 @@ if (-not $NoWatcher) {
     ) | Out-Null
 }
 
-if ($NoVideo) {
-    Write-Host 'OpenClaw Docker gateway started; video support is disabled with -NoVideo.'
+if ($NoVision) {
+    Write-Host 'OpenClaw Docker gateway started; all media services are disabled with -NoVision.'
+} elseif ($AllMedia) {
+    Write-Host 'OpenClaw Docker gateway started; all media services were explicitly enabled with -AllMedia.'
 } else {
-    Write-Host 'OpenClaw Docker gateway started; NVIDIA LocateAnything + local Qwen image fusion and Microsoft Mage-VL video understanding are enabled.'
+    Write-Host 'OpenClaw Docker gateway started; only the lightweight Qwen image service is enabled. Use Start-OpenClawVision.ps1 for video or image fusion.'
 }

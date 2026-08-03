@@ -1,8 +1,8 @@
 @echo off
 setlocal EnableExtensions
 
-set "PROJECT_DIR=%~dp0"
-set "LAUNCHER=%PROJECT_DIR%deploy\openclaw\Start-OpenClawDocker.ps1"
+for %%I in ("%~dp0..\..") do set "PROJECT_DIR=%%~fI"
+set "LAUNCHER=%PROJECT_DIR%\deploy\openclaw\Start-OpenClawDocker.ps1"
 
 if not exist "%LAUNCHER%" (
     echo ERROR: OpenClaw launcher not found:
@@ -13,8 +13,8 @@ if not exist "%LAUNCHER%" (
 
 echo Starting OpenClaw QQ Bot from:
 echo %PROJECT_DIR%
-echo Video: Microsoft Mage-VL with automatic 60-second segmentation
-echo Image: NVIDIA LocateAnything-3B localization plus local Qwen OCR/content fusion
+echo Default media: local Qwen image understanding only
+echo Video and heavy image fusion: start with deploy\openclaw\Start-OpenClawVision.ps1 when needed
 echo.
 
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%LAUNCHER%"

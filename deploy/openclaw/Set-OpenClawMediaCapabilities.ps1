@@ -31,6 +31,9 @@ $media = $config.tools.media
 if ($imageEnabled -and $videoEnabled) {
     # Keep the canonical source media configuration.
 } elseif ($imageEnabled) {
+    # The lightweight image profile uses the in-project Qwen service only.
+    # Do not leave a dead heavy image-fusion CLI as the first route.
+    $media.models = @($media.models | Where-Object { $_.type -ne 'cli' })
     $media.PSObject.Properties.Remove('video')
 } elseif ($videoEnabled) {
     $media.PSObject.Properties.Remove('models')

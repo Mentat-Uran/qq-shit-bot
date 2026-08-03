@@ -1,7 +1,7 @@
 param(
     [switch]$NoBuild,
     [ValidateSet('both', 'image', 'video')]
-    [string]$Mode = 'both'
+    [string]$Mode = 'image'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,7 +43,9 @@ if ($NoBuild) {
     $upArgs += '--no-build'
 }
 $services = switch ($Mode) {
-    'image' { @('qwen-vision', 'image-fusion') }
+    # The default image path is Qwen only; LocateAnything is the heavier
+    # optional fusion path and is started only by the explicit both profile.
+    'image' { @('qwen-vision') }
     'video' { @('video-bridge') }
     default { @('qwen-vision', 'image-fusion', 'video-bridge') }
 }
@@ -57,4 +59,7 @@ Invoke-Compose -Arguments $upArgs
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to set OpenClaw media capabilities with exit code $LASTEXITCODE"
 }
+# The video compose overlay adds the CLI bind mounts to the gateway. Recreate
+# only the gateway-side containers so a mode switch takes effect immediately.
+Invoke-Compose -Arguments @('up', '-d', '--no-deps', '--force-recreate', 'openclaw-gateway', 'context-recovery')
 Invoke-Compose -Arguments (@('ps') + $services)
