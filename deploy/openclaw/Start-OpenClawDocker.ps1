@@ -26,8 +26,7 @@ $sourceConfig = Join-Path $scriptDir 'openclaw.json'
 $runtimeConfig = Join-Path $configDir 'openclaw.json'
 $hermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:LOCALAPPDATA 'hermes' }
 $hermesEnvFile = Join-Path $hermesHome '.env'
-$deepSeekSecretFile = Join-Path $hermesHome 'secrets\deepseek-api-key.dpapi'
-$visionCompose = Join-Path 'C:\HermesWorkspace' 'local-vision\docker-compose.yml'
+$legacyVisionVolume = 'local-vision_hermes-vision-model-cache'
 
 function Get-DotEnvValue {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Name)
@@ -42,26 +41,6 @@ function Get-DotEnvValue {
         return ''
     }
     return (($line -replace ("^\s*" + [regex]::Escape($Name) + "\s*=\s*"), '').Trim().Trim('"').Trim("'"))
-}
-
-function Read-DeepSeekKey {
-    if (-not (Test-Path -LiteralPath $deepSeekSecretFile -PathType Leaf)) {
-        return ''
-    }
-    $secureValue = $null
-    $pointer = [IntPtr]::Zero
-    try {
-        $encryptedValue = (Get-Content -LiteralPath $deepSeekSecretFile -Raw -Encoding utf8).Trim()
-        $secureValue = ConvertTo-SecureString -String $encryptedValue
-        $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureValue)
-        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-    } catch {
-        return ''
-    } finally {
-        if ($pointer -ne [IntPtr]::Zero) {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
-        }
-    }
 }
 
 function Set-DotEnvValue {
@@ -117,11 +96,6 @@ function Set-RuntimeEnvironment {
         Set-Item -Path ("Env:{0}" -f $target) -Value $value
     }
 
-    $deepSeek = Read-DeepSeekKey
-    if ([string]::IsNullOrWhiteSpace($deepSeek)) {
-        throw 'The DPAPI-protected DeepSeek fallback key could not be loaded.'
-    }
-    $env:HERMES_DEEPSEEK_API_KEY = $deepSeek
     $plugin = Get-DotEnvValue -Path $envFile -Name 'OPENCLAW_QQBOT_PLUGIN'
     $env:OPENCLAW_QQBOT_PLUGIN = if ($plugin) { $plugin } else { '@openclaw/qqbot@2026.7.1' }
 
@@ -160,45 +134,72 @@ function Invoke-Compose {
     }
 }
 
-function Ensure-VisionStack {
-    if ($NoVision) {
+function Select-QwenModelCache {
+    $legacyVolume = & docker volume inspect $legacyVisionVolume 2>$null
+    if ($LASTEXITCODE -eq 0 -and $legacyVolume) {
+        $env:QWEN_MODEL_CACHE_VOLUME = $legacyVisionVolume
+        $env:QWEN_MODEL_CACHE_EXTERNAL = 'true'
+    }
+}
+
+function Remove-LegacyVisionContainer {
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $inspectionJson = & docker inspect hermes-vision 2>$null
+        $inspectExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+    if ($inspectExitCode -ne 0 -or -not $inspectionJson) {
         return
     }
-    if (-not (Test-Path -LiteralPath $visionCompose -PathType Leaf)) {
-        throw "The existing local vision compose file was not found: $visionCompose"
-    }
-    Push-Location (Split-Path -Parent $visionCompose)
     try {
-        & docker compose -f $visionCompose up -d
-        if ($LASTEXITCODE -ne 0) {
-            throw 'The existing local vision stack could not be started.'
-        }
-    } finally {
-        Pop-Location
+        $inspection = @($inspectionJson | ConvertFrom-Json)[0]
+        $image = [string]$inspection.Config.Image
+    } catch {
+        return
     }
+    if ($image -notlike 'ollama/ollama:*') {
+        return
+    }
+    & docker rm -f hermes-vision 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The legacy hermes-vision container could not be removed after Qwen migration.'
+    }
+}
+
+function Ensure-QwenService {
+    if ($NoVideo) {
+        return
+    }
+    Invoke-Compose -Arguments @('up', '-d', 'qwen-vision')
 
     $ready = $false
+    $modelList = ''
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        $previousErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         try {
-            $null = Invoke-RestMethod -Uri 'http://127.0.0.1:8010/api/tags' -TimeoutSec 3
+            $modelList = (& docker compose @composeFiles exec -T qwen-vision ollama list 2>$null | Out-String)
+            $qwenExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousErrorAction
+        }
+        if ($qwenExitCode -eq 0) {
             $ready = $true
             break
-        } catch {
-            Start-Sleep -Seconds 2
         }
+        Start-Sleep -Seconds 2
     }
     if (-not $ready) {
-        throw 'The local vision API did not become ready on 127.0.0.1:8010.'
+        throw 'The OpenClaw qwen-vision service did not become ready.'
     }
 
-    $tags = (Invoke-RestMethod -Uri 'http://127.0.0.1:8010/api/tags' -TimeoutSec 10).models
-    $hasQwen = @($tags | Where-Object { $_.name -eq 'qwen2.5vl:7b' }).Count -gt 0
-    if (-not $hasQwen) {
-        & docker exec hermes-vision ollama pull qwen2.5vl:7b
-        if ($LASTEXITCODE -ne 0) {
-            throw 'The local Qwen2.5-VL model could not be pulled.'
-        }
+    if ($modelList -notmatch '(?m)^qwen2\.5vl:7b\s') {
+        Invoke-Compose -Arguments @('exec', '-T', 'qwen-vision', 'ollama', 'pull', 'qwen2.5vl:7b')
     }
+    Remove-LegacyVisionContainer
 }
 
 function Ensure-RuntimeFiles {
@@ -327,13 +328,14 @@ if (-not $NoVideo -and -not (Test-Path -LiteralPath (Join-Path $scriptDir 'docke
 }
 
 Set-RuntimeEnvironment
-Ensure-VisionStack
+Select-QwenModelCache
 Ensure-RuntimeFiles
 
 Push-Location $scriptDir
 try {
     Invoke-Compose -Arguments @('config', '--quiet')
-    Invoke-Compose -Arguments @('pull', 'openclaw-gateway', 'openclaw-cli')
+    Invoke-Compose -Arguments @('pull', 'openclaw-gateway', 'openclaw-cli', 'qwen-vision')
+    Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'qq-diagnostic-filter-init')
 
     $previousErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
@@ -347,13 +349,19 @@ try {
         Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'plugins', 'install', $env:OPENCLAW_QQBOT_PLUGIN, '--force', '--pin')
     }
     Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'config', 'validate')
+    $mediaMode = if ($NoVideo -or $NoVision) { 'none' } else { 'both' }
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'Set-OpenClawMediaCapabilities.ps1') -Mode $mediaMode
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to set OpenClaw media capabilities with exit code $LASTEXITCODE."
+    }
+    Ensure-QwenService
 
     $portInUse = Get-NetTCPConnection -LocalPort ([int]$env:OPENCLAW_GATEWAY_PORT) -State Listen -ErrorAction SilentlyContinue
     if ($portInUse) {
         throw "Port $($env:OPENCLAW_GATEWAY_PORT) is already in use; refusing to start a second gateway."
     }
-    Invoke-Compose -Arguments @('up', '-d', '--force-recreate', 'openclaw-gateway')
-    Invoke-Compose -Arguments @('ps', 'openclaw-gateway')
+    Invoke-Compose -Arguments @('up', '-d', '--force-recreate', 'openclaw-gateway', 'context-recovery')
+    Invoke-Compose -Arguments @('ps', 'openclaw-gateway', 'context-recovery')
     Ensure-ProactiveReview
 } finally {
     Pop-Location

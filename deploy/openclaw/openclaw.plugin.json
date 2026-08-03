@@ -1,0 +1,12 @@
+{
+  "id": "qq-diagnostic-filter",
+  "name": "QQ Diagnostic Filter",
+  "description": "Suppresses internal error and model-fallback payloads in QQ groups.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

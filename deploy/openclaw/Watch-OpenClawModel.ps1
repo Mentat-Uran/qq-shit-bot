@@ -86,15 +86,7 @@ while ($true) {
         $primary = Get-OpenClawPrimary
         $probe = Invoke-SenseNovaProbe
         if ($primary -eq 'sensenova-token/deepseek-v4-flash' -and $probe.StatusCode -eq 429) {
-            if (-not [string]::IsNullOrWhiteSpace($env:HERMES_DEEPSEEK_API_KEY)) {
-                if (Set-OpenClawPrimary -Model 'hermes-deepseek/deepseek-chat') {
-                    Write-Host 'SenseNova quota probe returned 429; switched OpenClaw to official DeepSeek fallback.'
-                }
-            }
-        } elseif ($primary -eq 'hermes-deepseek/deepseek-chat' -and $probe.Available) {
-            if (Set-OpenClawPrimary -Model 'sensenova-token/deepseek-v4-flash') {
-                Write-Host 'SenseNova v4 is available again; switched OpenClaw primary back to SenseNova.'
-            }
+            Write-Host 'SenseNova quota probe returned 429; no paid fallback is configured, so OpenClaw remains on SenseNova.'
         }
     } catch {
         Write-Host 'OpenClaw model route check failed; retrying on the next interval.'

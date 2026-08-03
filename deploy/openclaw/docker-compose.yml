@@ -1,4 +1,4 @@
-name: hermes-qq-openclaw
+name: qq-shit-bot
 
 x-openclaw-common: &openclaw-common
   image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
@@ -21,6 +21,8 @@ x-openclaw-common: &openclaw-common
   volumes:
     - ./runtime/config:/home/node/.openclaw
     - ./runtime/workspace:/home/node/.openclaw/workspace
+    - qq-diagnostic-filter:/opt/openclaw-local
+    - openclaw-logs:/tmp/openclaw
   cap_drop:
     - NET_RAW
     - NET_ADMIN
@@ -29,19 +31,36 @@ x-openclaw-common: &openclaw-common
   init: true
 
 services:
+  qq-diagnostic-filter-init:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
+    user: "0:0"
+    volumes:
+      - qq-diagnostic-filter:/opt/openclaw-local
+      - openclaw-logs:/tmp/openclaw
+      - ./qq-diagnostic-filter.mjs:/seed/qq-diagnostic-filter.mjs:ro
+      - ./openclaw.plugin.json:/seed/openclaw.plugin.json:ro
+      - ./qqbot-history-media-patch.mjs:/seed/qqbot-history-media-patch.mjs:ro
+      - ./context-recovery.mjs:/seed/context-recovery.mjs:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - "mkdir -p /tmp/openclaw && chown ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /tmp/openclaw && cp /seed/qq-diagnostic-filter.mjs /opt/openclaw-local/qq-diagnostic-filter.mjs && cp /seed/openclaw.plugin.json /opt/openclaw-local/openclaw.plugin.json && cp /seed/qqbot-history-media-patch.mjs /opt/openclaw-local/qqbot-history-media-patch.mjs && cp /seed/context-recovery.mjs /opt/openclaw-local/context-recovery.mjs && chmod 0644 /opt/openclaw-local/qq-diagnostic-filter.mjs /opt/openclaw-local/openclaw.plugin.json /opt/openclaw-local/qqbot-history-media-patch.mjs /opt/openclaw-local/context-recovery.mjs"
+    restart: "no"
+
   openclaw-gateway:
     <<: *openclaw-common
+    depends_on:
+      qq-diagnostic-filter-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     ports:
       - "127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}:18789"
     command:
-      - node
-      - dist/index.js
-      - gateway
-      - --bind
-      - lan
-      - --port
-      - "18789"
+      - sh
+      - -c
+      - >-
+        node /opt/openclaw-local/qqbot-history-media-patch.mjs && exec node
+        dist/index.js gateway --bind lan --port 18789 2>&1 | tee -a
+        /tmp/openclaw/gateway.log
     healthcheck:
       test:
         - CMD
@@ -59,3 +78,23 @@ services:
     entrypoint: ["node", "dist/index.js"]
     stdin_open: true
     tty: true
+
+  context-recovery:
+    <<: *openclaw-common
+    depends_on:
+      openclaw-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    command:
+      - node
+      - /opt/openclaw-local/context-recovery.mjs
+
+volumes:
+  # Keep these volume names stable while the Compose project name moves from
+  # the old local deployment name to the GitHub repository name.
+  qq-diagnostic-filter:
+    name: hermes-qq-openclaw_qq-diagnostic-filter
+  openclaw-logs:
+    name: hermes-qq-openclaw_openclaw-logs

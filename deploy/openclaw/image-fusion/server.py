@@ -24,7 +24,7 @@ app = FastAPI(title="LocateAnything plus Qwen image bridge", docs_url=None, redo
 
 LOCATE_MODEL_ID = os.getenv("LOCATE_MODEL_ID", "nvidia/LocateAnything-3B")
 HF_HOME = os.getenv("HF_HOME", "/root/.cache/huggingface")
-QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "http://host.docker.internal:8010").rstrip("/")
+QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "http://qwen-vision:11434").rstrip("/")
 QWEN_MODEL_ID = os.getenv("QWEN_MODEL_ID", "qwen2.5vl:7b")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "1024"))
