@@ -325,6 +325,7 @@ def analyze_video(path: Path, prompt: str, num_frames: int, max_chars: int) -> s
         actual_segment_seconds = duration / segment_count
         per_segment_chars = max(400, min(1600, max_chars // segment_count + 300))
         results: list[str] = []
+        frames: list[Image.Image] = []
         try:
             for segment_index in range(segment_count):
                 start_seconds = segment_index * actual_segment_seconds
@@ -350,12 +351,11 @@ def analyze_video(path: Path, prompt: str, num_frames: int, max_chars: int) -> s
                 results.append(
                     f"[片段 {segment_index + 1} | {start_seconds:.1f}-{end_seconds:.1f}s]\n{result}"
                 )
-                del frames
+                frames.clear()
         finally:
             # The shared lock is held until the model is released, so image and
             # video requests cannot create two resident GPU models at once.
-            if "frames" in locals():
-                del frames
+            frames.clear()
             del model, processor
             unload_model()
 
