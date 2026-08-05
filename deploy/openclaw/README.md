@@ -4,7 +4,7 @@ This deployment runs OpenClaw and the official `@openclaw/qqbot` plugin entirely
 
 This is the only supported deployment for the QQ bot. OpenClaw and all QQ bot services run in Docker; the host only needs Docker Desktop or Docker Engine.
 
-The Compose project name is `qq-shit-bot`, matching the GitHub remote repository. Service containers therefore use names such as `qq-shit-bot-openclaw-gateway-1`; the existing model and log volumes keep their old names so the downloaded weights and runtime logs are not copied or redownloaded during the rename.
+The Compose project name is `qq-shit-bot`, matching the GitHub remote repository. Service containers therefore use names such as `qq-shit-bot-openclaw-gateway-1`; persistent volumes use the `qqshitbot-openclaw_*` prefix.
 
 ## What it configures
 
@@ -21,8 +21,8 @@ The Compose project name is `qq-shit-bot`, matching the GitHub remote repository
 - QQ direct and group access restricted to configured owner identifiers by default.
 - Startup model discovery disabled because all providers are declared explicitly; model loading still occurs on the first request.
 - Qwen2.5-VL 7B is the only enabled image-understanding path. The NVIDIA LocateAnything-3B image-fusion fallback and the Microsoft Mage-VL video bridge are retired: their images, scripts, and Compose overlay are retained for reference only, are no longer built or started, and their model routes have been removed from `openclaw.json` (`tools.media.video.enabled: false`, no CLI media entries). No video analysis is performed by the gateway.
-- The Qwen2.5-VL Ollama service, NVIDIA image-fusion service, Microsoft video bridge, OpenClaw gateway, and context-recovery sidecar are all services in the same Compose project. Qwen has no host port; image and video services reach it at `qwen-vision:11434` on the private Compose network.
-- QQ image messages can use a two-message workflow for mobile clients: send the image first, then send a message that @mentions the bot. Videos are heavier and are analyzed in a group only when the current message directly @mentions the bot or explicitly quotes/replies to that video while mentioning the bot; an old video is never promoted from history. A media message that already includes the bot mention is passed directly; ordinary non-media chatter remains mention-gated.
+- The Qwen2.5-VL Ollama service, OpenClaw gateway, and context-recovery sidecar are the active services in the Compose project. Qwen has no host port and is reached at `qwen-vision:11434` on the private Compose network.
+- QQ image messages can use a two-message workflow for mobile clients: send the image first, then send a message that @mentions the bot. A media message that already includes the bot mention is passed directly; ordinary non-media chatter remains mention-gated.
 - Group sessions have a 120-minute idle reset, and the `context-recovery` sidecar watches the gateway log for an unrecoverable context overflow or stalled agent run and resets the affected QQ group session automatically. Existing log contents are not replayed when the sidecar starts, so an old failure cannot reset a newly started session.
 
 `Watch-OpenClawModel.ps1` probes SenseNova every five minutes with a one-token request. A 429 is logged locally; failed model requests can then use the configured official DeepSeek fallback. The watcher is started with the gateway by `Start-OpenClawDocker.ps1`.
@@ -72,7 +72,7 @@ docker compose up -d openclaw-gateway context-recovery
 
 On Windows, use Docker Desktop with WSL or Git Bash to run `setup.sh`. The Compose file itself is platform-neutral; the equivalent manual sequence is to create `runtime/config` and `runtime/workspace`, copy `openclaw.json`, `AGENTS.md`, and `SOUL.md` into them, install the plugin with the `openclaw-cli` service, validate the config, start `qwen-vision`, ensure `qwen2.5vl:7b` is present, and start `openclaw-gateway context-recovery`.
 
-For the local Windows deployment, double-click `scripts/windows/Start-OpenClawQQBot.bat` from the repository or use the desktop shortcut copy. It calls `deploy/openclaw/Start-OpenClawDocker.ps1`, which starts the gateway, recovery sidecar, and lightweight Qwen image service only; the model route watcher and proactive review jobs are also registered. Heavy video and LocateAnything services are opt-in. The repository BAT resolves the project root relative to its own location, so it remains portable after the workspace is moved.
+For the local Windows deployment, double-click `scripts/windows/Start-OpenClawQQBot.bat` from the repository or use the desktop shortcut copy. It calls `deploy/openclaw/Start-OpenClawDocker.ps1`, which starts the gateway, recovery sidecar, and lightweight Qwen image service only; the model route watcher and proactive review jobs are also registered. The repository BAT resolves the project root relative to its own location, so it remains portable after the workspace is moved.
 
 ## Container and GPU management
 
@@ -85,7 +85,7 @@ The normal QQ runtime is split into these services:
 - `qq-diagnostic-filter-init`: one-shot initialization service that seeds the local QQ diagnostics and recovery scripts; it is not a persistent worker and does not use GPU.
 - `openclaw-cli`: an optional `cli` profile for administrative commands; it normally remains stopped and does not use GPU.
 
-Windows cannot reliably attribute the global `nvidia-smi` allocation to individual Docker containers. The reliable distinction is which services have `gpus: all`; use `nvidia-smi`, `ollama ps`, and the image/video `/healthz` endpoints to see whether a model is currently loaded and whether it is on CUDA. Docker's `MEM USAGE` column is system RAM, not VRAM.
+Use `nvidia-smi` and `ollama ps` to see whether Qwen is currently loaded on CUDA. Docker's `MEM USAGE` column is system RAM, not VRAM.
 
 To stop even the lightweight image service and keep only the QQ bot and recovery sidecar running:
 
@@ -95,13 +95,13 @@ To stop even the lightweight image service and keep only the QQ bot and recovery
 
 Stopping the services also writes a `none` media-capability profile into the runtime config. The media routes are removed for that runtime, and old group images/videos are never promoted into a new @mention.
 
-The retired heavy services mean the `video` and `both` modes no longer have model routes in `openclaw.json`; the launcher defaults to `image`:
+The vision helper only starts the active Qwen image service:
 
 ```powershell
-.\Start-OpenClawVision.ps1 -Mode image   # lightweight Qwen image path (only active mode)
+.\Start-OpenClawVision.ps1   # lightweight Qwen image path
 ```
 
-The helper updates the runtime capability profile and recreates only the gateway/recovery containers so the model policy and mounted media tools stay aligned. `image`, `video`, and `both` are mutually exclusive runtime profiles; the default is `image`. The `video`/`both` modes and the retained `docker-compose.video.yml` overlay exist only for reference and are not part of the current runtime.
+The helper updates the runtime capability profile and recreates only the gateway/recovery containers so the model policy stays aligned. No video or heavy image-fusion capability is exposed by the current runtime.
 
 The normal launcher starts the gateway and lightweight Qwen image service:
 
@@ -109,9 +109,7 @@ The normal launcher starts the gateway and lightweight Qwen image service:
 .\Start-OpenClawDocker.ps1
 ```
 
-The gateway and recovery sidecar should remain running for QQ replies. The retired Mage-VL and LocateAnything bridges (GPU lock, CUDA enforcement, CPU/RAM caps, 2 GiB shared memory) are no longer used; their images and scripts are retained but must not be rebuilt or started.
-
-Every video is first transcoded to a local H.264/AAC proxy at up to 960 pixels, 24 fps, and CRF 30 before Mage-VL sees it. The original upload and proxy are temporary files removed with the request workspace.
+The gateway and recovery sidecar should remain running for QQ replies. Only the Qwen image service is started by the supported launchers.
 
 ## Group participation
 
