@@ -6,6 +6,7 @@ const LOG_DIR = "/tmp/openclaw";
 const POLL_MS = 1000;
 const PENDING_TTL_MS = 30_000;
 const RESET_COOLDOWN_MS = 60_000;
+const MAX_LOG_BYTES = 64 * 1024 * 1024;
 const pendingSessionKeys = new Map();
 const lastResetAt = new Map();
 const resetInFlight = new Set();
@@ -109,12 +110,24 @@ function scanLog(file) {
     const length = stat.size - start;
     const buffer = Buffer.alloc(length);
     fs.readSync(fd, buffer, 0, length, start);
-    offsets.set(file, stat.size);
     for (const line of buffer.toString("utf8").split(/\r?\n/)) {
       if (line) handleLine(line);
     }
   } finally {
     fs.closeSync(fd);
+  }
+  if (stat.size > MAX_LOG_BYTES) {
+    // The gateway appends through `tee -a`, which keeps the file open in
+    // append mode; truncating while it is open is safe because subsequent
+    // writes continue at the new end of file. This caps the named volume so
+    // a long-running gateway cannot grow the log without bound. Lines
+    // appended between the read above and the truncate are re-processed on
+    // the next poll, which is harmless because resets are idempotent and
+    // cooldown-gated.
+    fs.truncateSync(file, 0);
+    offsets.set(file, 0);
+  } else {
+    offsets.set(file, stat.size);
   }
 }
 
