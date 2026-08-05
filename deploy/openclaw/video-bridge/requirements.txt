@@ -1,6 +1,8 @@
-fastapi>=0.115,<1
-httpx>=0.28,<1
-numpy>=2,<3
-opencv-python-headless>=4.10,<5
-python-multipart>=0.0.20,<1
-uvicorn[standard]>=0.34,<1
+# Exact pins match vision-runtime/Dockerfile (the built images). Local dev
+# only: the GPU containers ship torch/transformers themselves.
+fastapi==0.136.3
+httpx==0.28.1
+numpy==2.2.6
+opencv-python-headless==5.0.0.93
+python-multipart==0.0.32
+uvicorn[standard]==0.51.0
