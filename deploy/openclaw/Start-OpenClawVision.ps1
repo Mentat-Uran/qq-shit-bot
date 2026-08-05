@@ -1,15 +1,12 @@
 param(
-    [switch]$NoBuild,
-    [ValidateSet('both', 'image', 'video')]
-    [string]$Mode = 'image'
+    [switch]$NoBuild
 )
 
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $composeFiles = @(
     '-f', (Join-Path $scriptDir 'docker-compose.yml'),
-    '-f', (Join-Path $scriptDir 'docker-compose.local.yml'),
-    '-f', (Join-Path $scriptDir 'docker-compose.video.yml')
+    '-f', (Join-Path $scriptDir 'docker-compose.local.yml')
 )
 
 function Invoke-Compose {
@@ -24,42 +21,15 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw 'Docker CLI was not found in PATH.'
 }
 
-# Reuse the existing Ollama model cache when this deployment is migrated from
-# the former local-vision project. This avoids downloading the 7B model again.
-$legacyVisionVolume = 'local-vision_hermes-vision-model-cache'
-$legacyVolumeExists = $false
-& docker volume inspect $legacyVisionVolume *> $null
-if ($LASTEXITCODE -eq 0) {
-    $legacyVolumeExists = $true
-}
-
-if ($legacyVolumeExists) {
-    $env:QWEN_MODEL_CACHE_VOLUME = $legacyVisionVolume
-    $env:QWEN_MODEL_CACHE_EXTERNAL = 'true'
-}
-
 $upArgs = @('up', '-d')
 if ($NoBuild) {
     $upArgs += '--no-build'
 }
-$services = switch ($Mode) {
-    # The default image path is Qwen only; LocateAnything is the heavier
-    # optional fusion path and is started only by the explicit both profile.
-    'image' { @('qwen-vision') }
-    'video' { @('video-bridge') }
-    default { @('qwen-vision', 'image-fusion', 'video-bridge') }
-}
-$servicesToStop = @('qwen-vision', 'image-fusion', 'video-bridge') | Where-Object { $_ -notin $services }
-if ($servicesToStop) {
-    Invoke-Compose -Arguments (@('stop') + $servicesToStop)
-}
-$upArgs += $services
+$upArgs += 'qwen-vision'
 Invoke-Compose -Arguments $upArgs
-& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'Set-OpenClawMediaCapabilities.ps1') -Mode $Mode -RestartGateway
+& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'Set-OpenClawMediaCapabilities.ps1') -Mode image -RestartGateway
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to set OpenClaw media capabilities with exit code $LASTEXITCODE"
 }
-# The video compose overlay adds the CLI bind mounts to the gateway. Recreate
-# only the gateway-side containers so a mode switch takes effect immediately.
 Invoke-Compose -Arguments @('up', '-d', '--no-deps', '--force-recreate', 'openclaw-gateway', 'context-recovery')
-Invoke-Compose -Arguments (@('ps') + $services)
+Invoke-Compose -Arguments @('ps', 'qwen-vision')

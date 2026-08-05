@@ -50,9 +50,9 @@ def test_compose_uses_pinned_image_and_loopback_port():
     assert recovery["depends_on"]["openclaw-gateway"]["condition"] == "service_healthy"
     assert recovery["healthcheck"] == {"disable": True}
     assert recovery["command"] == ["node", "/opt/openclaw-local/context-recovery.mjs"]
-    assert compose["volumes"]["qq-diagnostic-filter"]["name"] == "hermes-qq-openclaw_qq-diagnostic-filter"
-    assert compose["volumes"]["openclaw-logs"]["name"] == "hermes-qq-openclaw_openclaw-logs"
-    assert compose["volumes"]["openclaw-state"]["name"] == "hermes-qq-openclaw_openclaw-state"
+    assert compose["volumes"]["qq-diagnostic-filter"]["name"] == "qqshitbot-openclaw_qq-diagnostic-filter"
+    assert compose["volumes"]["openclaw-logs"]["name"] == "qqshitbot-openclaw_openclaw-logs"
+    assert compose["volumes"]["openclaw-state"]["name"] == "qqshitbot-openclaw_openclaw-state"
 
 
 def test_openclaw_config_enables_qq_plugin_and_uses_secret_refs():
@@ -81,7 +81,6 @@ def test_openclaw_config_enables_qq_plugin_and_uses_secret_refs():
     assert config["agents"]["defaults"]["model"]["fallbacks"] == ["deepseek/deepseek-chat"]
     assert config["models"]["providers"]["deepseek"]["baseUrl"] == "https://api.deepseek.com/v1"
     assert config["models"]["providers"]["deepseek"]["apiKey"]["id"] == "DEEPSEEK_API_KEY"
-    assert "hermes-deepseek" not in config["models"]["providers"]
     assert config["tools"]["web"]["search"] == {
         "enabled": True,
         "provider": "duckduckgo",
@@ -92,11 +91,15 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     config = load_openclaw_config()
 
     defaults = config["agents"]["defaults"]
-    assert defaults["contextTokens"] == 65536
+    assert defaults["contextTokens"] == 131072
     assert defaults["timeoutSeconds"] == 900
     assert defaults["utilityModel"] == ""
     assert defaults["imageModel"] == "local-vision/qwen2.5vl:7b"
-    assert defaults["compaction"]["mode"] == "safeguard"
+    assert defaults["compaction"] == {
+        "mode": "safeguard",
+        "keepRecentTokens": 20000,
+        "recentTurnsPreserve": 8,
+    }
     assert config["session"]["resetByType"]["group"] == {
         "mode": "idle",
         "idleMinutes": 120,
@@ -125,15 +128,15 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     assert "qqbot_process_preamble_suppressed" in diagnostic_filter
 
     history_media_patch = (DEPLOY_DIR / "qqbot-history-media-patch.mjs").read_text(encoding="utf-8")
-    assert "hermes-qq-history-media-v1" in history_media_patch
+    assert "qqbot-history-media-v1" in history_media_patch
     assert "function resolveLatestHistoricalMedia" not in history_media_patch
     assert "function promoteHistoricalMedia" not in history_media_patch
-    assert "hermes-qq-historical-media-disabled-v2" in history_media_patch
+    assert "qqbot-historical-media-disabled-v2" in history_media_patch
     assert "disableHistoricalMediaPromotion" in history_media_patch
     assert "videoAttachmentPaths" in history_media_patch
-    assert "hermes-qq-video-mention-gate-v2" in history_media_patch
+    assert "qqbot-video-mention-gate-v2" in history_media_patch
     assert "video-gate-after-group-info" in history_media_patch
-    assert "hermes-qq-video-mention-gate-v1" in history_media_patch
+    assert "qqbot-video-mention-gate-v1" in history_media_patch
     assert "filterVideoByMention" in history_media_patch
     assert "effectiveWasMentioned === true" in history_media_patch
 
@@ -152,22 +155,18 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
         "drop": "summarize",
     }
     image_models = config["tools"]["media"]["models"]
-    assert image_models[0] == {
-        "provider": "local-vision",
-        "model": "qwen2.5vl:7b",
-        "capabilities": ["image"],
-        "timeoutSeconds": 180,
-        "maxChars": 800,
-    }
-    assert image_models[1]["type"] == "cli"
-    assert image_models[1]["capabilities"] == ["image"]
-    assert "nvidia-image-cli.mjs" in " ".join(image_models[1]["args"])
-    video = config["tools"]["media"]["video"]
-    assert video["enabled"] is True
-    assert video["timeoutSeconds"] == 1200
-    assert video["models"][0]["type"] == "cli"
-    assert video["models"][0]["capabilities"] == ["video"]
-    assert "mage-video-cli.mjs" in " ".join(video["models"][0]["args"])
+    assert image_models == [
+        {
+            "provider": "local-vision",
+            "model": "qwen2.5vl:7b",
+            "capabilities": ["image"],
+            "timeoutSeconds": 180,
+            "maxChars": 800,
+        }
+    ]
+    assert config["tools"]["media"]["video"]["enabled"] is False
+    assert "nvidia-image-cli.mjs" not in json.dumps(config)
+    assert "mage-video-cli.mjs" not in json.dumps(config)
 
     serialized = json.dumps(config)
     assert "openai/" not in serialized
@@ -183,19 +182,9 @@ def test_env_example_pins_matching_openclaw_and_plugin_versions():
     assert "QQBOT_CLIENT_SECRET=replace-with-qq-app-secret" in env_text
     assert "QQBOT_ALLOWED_USER_OPENID=replace-with-dm-user-openid" in env_text
     assert "QQBOT_ALLOWED_MEMBER_OPENID=replace-with-group-member-openid" in env_text
-    assert "HERMES_DEEPSEEK_API_KEY" not in env_text
-    assert "MAGE_MODEL_ID=microsoft/Mage-VL" in env_text
-    assert "MAGE_VIDEO_NUM_FRAMES=8" in env_text
-    assert "MAGE_MAX_UPLOAD_BYTES=209715200" in env_text
-    assert "MAGE_MAX_COMPRESSED_BYTES=104857600" in env_text
-    assert "MAGE_VIDEO_COMPRESS_CRF=30" in env_text
-    assert "MAGE_MAX_NEW_TOKENS=384" in env_text
-    assert "MAGE_VIDEO_MAX_SEGMENTS=8" in env_text
-    assert "MAGE_MODEL_DEVICE=cuda:0" in env_text
-    assert "MAGE_VIDEO_MEMORY_LIMIT=10g" in env_text
-    assert "NVIDIA_IMAGE_MODEL_ID=nvidia/LocateAnything-3B" in env_text
-    assert "NVIDIA_IMAGE_MODEL_DEVICE=cuda:0" in env_text
-    assert "NVIDIA_IMAGE_MEMORY_LIMIT=8g" in env_text
+    assert "DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in env_text
+    assert "microsoft/Mage-VL" not in env_text
+    assert "nvidia/LocateAnything-3B" not in env_text
     assert "QWEN_MODEL_ID=qwen2.5vl:7b" in env_text
     assert "QWEN_MEMORY_LIMIT=6g" in env_text
     assert "QWEN_BASE_URL=http://qwen-vision:11434" in env_text
@@ -217,41 +206,19 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     launcher = (DEPLOY_DIR / "Start-OpenClawDocker.ps1").read_text()
     watcher = (DEPLOY_DIR / "Watch-OpenClawModel.ps1").read_text()
     overlay = (DEPLOY_DIR / "docker-compose.local.yml").read_text()
-    video_compose = (DEPLOY_DIR / "docker-compose.video.yml").read_text()
     bridge_cli = (DEPLOY_DIR / "video-bridge" / "mage-video-cli.mjs").read_text()
 
-    assert "deepseek-api-key.dpapi" in launcher
-    assert "Set-OptionalDeepSeekRuntimeKey" in launcher
-    assert "C:\\HermesWorkspace" in launcher
+    assert "DEEPSEEK_API_KEY" in launcher
+    assert "deepseek-api-key.dpapi" not in launcher
     assert "Watch-OpenClawModel.ps1" in launcher
     assert "SENSENOVA_API_KEY" in watcher
     assert "fallback" in watcher.lower()
-    assert "hermes-deepseek/deepseek-chat" not in watcher
+    assert "deepseek/deepseek-chat" not in watcher
     assert "*/10 8-23,0-1 * * *" in launcher
     assert "*/30 2-7 * * *" in launcher
     assert "Asia/Shanghai" in launcher
-    assert "docker-compose.video.yml" in launcher
-    assert "$NoVideo" in launcher
-    assert "-AllMedia" in launcher
-    assert "only the lightweight Qwen image service" in launcher
-    assert "microsoft/Mage-VL" in video_compose
-    assert "nvidia/LocateAnything-3B" in video_compose
-    assert "vllm/vllm-openai" in video_compose
-    assert "qwen-vision:" in video_compose
-    assert "qwen-vision:11434" in video_compose
-    assert "image-fusion" in video_compose
-    assert "vision-runtime/Dockerfile" in video_compose
-    assert "target: video" in video_compose
-    assert "target: image" in video_compose
-    assert 'profiles: ["heavy-media"]' in video_compose
-    assert 'shm_size: "2gb"' in video_compose
-    assert "init: true" in video_compose
-    assert "nvidia-image-cli.mjs" in video_compose
-    assert "MAX_COMPRESSED_BYTES" in video_compose
-    assert "VIDEO_COMPRESS_WIDTH" in video_compose
     assert "{{MediaPath}}" in bridge_cli or "--media-path" in bridge_cli
     assert "environment:" in overlay
-    assert "HERMES_DEEPSEEK_API_KEY" not in overlay
     assert "DEEPSEEK_API_KEY" in overlay
     assert "api.deepseek.com" not in overlay
     assert "sk-" not in launcher
@@ -265,21 +232,20 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     capability_script = (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").read_text(encoding="utf-8")
     assert "media-capabilities.json" in capability_script
     assert "Never claim to have seen an image" in capability_script
-    assert "ValidateSet('none', 'image', 'video', 'both')" in capability_script
+    assert "ValidateSet('none', 'image')" in capability_script
     assert "Remove('imageModel')" in capability_script
     assert "Remove('local-vision')" in capability_script
     assert "switch ($RestartGateway)" in capability_script or "if ($RestartGateway)" in capability_script
 
     history_patch = (DEPLOY_DIR / "qqbot-history-media-patch.mjs").read_text(encoding="utf-8")
-    assert "hermes-qq-media-capabilities-v1" in history_patch
+    assert "qqbot-media-capabilities-v1" in history_patch
     assert "filterMediaByCapability" in history_patch
     assert "readMediaCapabilities" in history_patch
-    assert "hermes-qq-video-mention-gate-v2" in history_patch
+    assert "qqbot-video-mention-gate-v2" in history_patch
     assert "video-gate-after-group-info" in history_patch
     assert "!event?.groupOpenid || groupInfo?.gate?.effectiveWasMentioned === true" in history_patch
     vision_launcher = (DEPLOY_DIR / "Start-OpenClawVision.ps1").read_text(encoding="utf-8")
-    assert "servicesToStop" in vision_launcher
-    assert "Where-Object { $_ -notin $services }" in vision_launcher
+    assert "qwen-vision" in vision_launcher
     assert "--force-recreate" in vision_launcher
 
 

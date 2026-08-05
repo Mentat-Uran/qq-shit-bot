@@ -86,6 +86,11 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
     command:
       - sh
       - -c
@@ -124,14 +129,12 @@ services:
       - /opt/openclaw-local/context-recovery.mjs
 
 volumes:
-  # Keep these volume names stable while the Compose project name moves from
-  # the old local deployment name to the GitHub repository name.
   qq-diagnostic-filter:
-    name: hermes-qq-openclaw_qq-diagnostic-filter
+    name: qqshitbot-openclaw_qq-diagnostic-filter
   openclaw-logs:
-    name: hermes-qq-openclaw_openclaw-logs
+    name: qqshitbot-openclaw_openclaw-logs
   openclaw-state:
-    name: hermes-qq-openclaw_openclaw-state
+    name: qqshitbot-openclaw_openclaw-state
   qwen-vision-model-cache:
-    name: ${QWEN_MODEL_CACHE_VOLUME:-hermes-qq-openclaw_qwen-vision-model-cache}
+    name: ${QWEN_MODEL_CACHE_VOLUME:-qqshitbot-openclaw_qwen-vision-model-cache}
     external: ${QWEN_MODEL_CACHE_EXTERNAL:-false}

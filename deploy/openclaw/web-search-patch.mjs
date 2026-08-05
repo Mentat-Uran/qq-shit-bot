@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const PATCH_MARKER = "/* hermes-qq-duckduckgo-lite-v1 */";
+const PATCH_MARKER = "/* qqbot-duckduckgo-lite-v1 */";
 const DIST_DIR = "/app/dist";
 const HTML_ENDPOINT = 'const DDG_HTML_ENDPOINT = "https://html.duckduckgo.com/html";';
 const LITE_ENDPOINT = 'const DDG_HTML_ENDPOINT = "https://lite.duckduckgo.com/lite";';
@@ -45,7 +45,7 @@ function patchBundle(file) {
     source = source.replace(anchor, `${fallback}${anchor}`);
   }
   if (source === original) return false;
-  const tempFile = `${file}.hermes-duckduckgo-lite.tmp`;
+  const tempFile = `${file}.qqbot-duckduckgo-lite.tmp`;
   fs.writeFileSync(tempFile, source, "utf8");
   fs.renameSync(tempFile, file);
   return true;

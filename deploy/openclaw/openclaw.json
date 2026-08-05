@@ -17,7 +17,7 @@
   "agents": {
     "defaults": {
       "workspace": "/home/node/.openclaw/workspace",
-      "contextTokens": 65536,
+      "contextTokens": 131072,
       "timeoutSeconds": 900,
       "utilityModel": "",
       "model": {
@@ -29,7 +29,7 @@
       "imageModel": "local-vision/qwen2.5vl:7b",
       "compaction": {
         "mode": "safeguard",
-        "keepRecentTokens": 16000,
+        "keepRecentTokens": 20000,
         "recentTurnsPreserve": 8
       }
     }
@@ -194,54 +194,10 @@
           ],
           "timeoutSeconds": 180,
           "maxChars": 800
-        },
-        {
-          "type": "cli",
-          "command": "node",
-          "args": [
-            "/opt/openclaw-local/nvidia-image-cli.mjs",
-            "--media-path",
-            "{{MediaPath}}",
-            "--prompt",
-            "{{Prompt}}",
-            "--max-chars",
-            "{{MaxChars}}"
-          ],
-          "capabilities": [
-            "image"
-          ],
-          "timeoutSeconds": 600,
-          "maxBytes": 20971520,
-          "maxChars": 800
         }
       ],
       "video": {
-        "enabled": true,
-        "maxBytes": 209715200,
-        "timeoutSeconds": 1200,
-        "maxChars": 6000,
-        "prompt": "请读取这个视频，概括主要场景、人物、动作、文字和事件发生顺序；看不清或无法确定的内容请明确说明。",
-        "models": [
-          {
-            "type": "cli",
-            "command": "node",
-            "args": [
-              "/opt/openclaw-local/mage-video-cli.mjs",
-              "--media-path",
-              "{{MediaPath}}",
-              "--prompt",
-              "{{Prompt}}",
-              "--max-chars",
-              "{{MaxChars}}"
-            ],
-            "capabilities": [
-              "video"
-            ],
-            "timeoutSeconds": 1200,
-            "maxBytes": 209715200,
-            "maxChars": 6000
-          }
-        ]
+        "enabled": false
       }
     }
   },

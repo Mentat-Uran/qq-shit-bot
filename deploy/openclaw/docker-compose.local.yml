@@ -1,5 +1,5 @@
-# Local-only overlay. Values are supplied by Start-OpenClaw.ps1 and never
-# stored in this file or in the repository.
+# Local-only overlay. Values are supplied by .env and never stored in the
+# repository.
 services:
   openclaw-gateway:
     environment:

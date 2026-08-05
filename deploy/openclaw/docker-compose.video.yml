@@ -116,8 +116,7 @@ services:
       - ./image-fusion/nvidia-image-cli.mjs:/opt/openclaw-local/nvidia-image-cli.mjs:ro
 
 volumes:
-  # These caches are retained across the project-name migration.
   mage-vl-hf-cache:
-    name: hermes-qq-openclaw_mage-vl-hf-cache
+    name: qqshitbot-openclaw_mage-vl-hf-cache
   ai-gpu-lock:
-    name: hermes-qq-openclaw_ai-gpu-lock
+    name: qqshitbot-openclaw_ai-gpu-lock
