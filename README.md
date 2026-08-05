@@ -10,7 +10,7 @@
 - 群聊上下文按群独立维护:32 条历史窗口、收集式消息队列(上限 32 条、超出自动摘要)、120 分钟空闲自动重置、compaction safeguard 模式;`context-recovery` 守护进程在上下文溢出或模型卡死时自动重置对应群会话。
 - 引用文本、图片、语音、文件和 QQ 小程序卡片摘要处理;小程序有标题时先搜索标题再解读,查不到时不编造正文。
 - 商汤 SenseNova `deepseek-v4-flash` 为主模型,官方 DeepSeek `deepseek-chat` 兜底;`Watch-OpenClawModel.ps1` 每五分钟探测商汤额度,失败时自动走 DeepSeek,恢复后自动切回,切换过程不向群里发送诊断信息。
-- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)作为常规图片理解路径;Mage-VL 视频桥(`127.0.0.1:30000`)与 NVIDIA LocateAnything-3B 图像融合(`127.0.0.1:30001`)属于可选 `heavy-media` 服务,视频只识别当前消息直接 @ 或明确引用该视频的请求。
+- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是唯一启用的视觉路径。Mage-VL 视频桥(`127.0.0.1:30000`)与 NVIDIA LocateAnything-3B 图像融合(`127.0.0.1:30001`)因表现不佳已停用,镜像与脚本仅保留,不再构建新镜像或启动新容器。
 - 关闭 OpenClaw 终端、Control UI 仅绑定 `127.0.0.1` 且需 token 认证;`exec`/`read`/`write` 工具全局禁用;QQ 私聊与群聊默认白名单。
 
 ## 快速开始(OpenClaw + Docker)
@@ -53,18 +53,17 @@ docker compose exec qwen-vision ollama list
 
 - `openclaw-gateway`:QQ WebSocket、会话/上下文、模型路由与最终中文回复,不加载重型视觉模型。
 - `qwen-vision`:私有 Ollama `Qwen2.5-VL 7B` 图片理解与 OCR,GPU 按需加载,`OLLAMA_KEEP_ALIVE=3m` 短保活。
-- `video-bridge`(可选 `heavy-media`):Microsoft Mage-VL 视频分段理解,拒绝 CPU offload。
-- `image-fusion`(可选 `heavy-media`):NVIDIA LocateAnything-3B 定位 + Qwen 内容/OCR 融合,拒绝 CPU offload。
+- `video-bridge` / `image-fusion`:已停用的重型视觉服务,镜像与 `docker-compose.video.yml` 仅保留,不再构建或启动;`openclaw.json` 中已移除对应模型路由。
 - `context-recovery`:监控网关日志,上下文溢出或会话卡死时自动重置对应群会话。
 - `qq-diagnostic-filter-init`:一次性初始化服务,把本地钩子与补丁脚本以 `0644` 种入命名卷。
 
-Qwen 不暴露宿主机端口;图片/视频服务在 Compose 私有网络内访问 `qwen-vision:11434`。重型服务共享 GPU 锁,一次只驻留一个重型模型。
+Qwen 不暴露宿主机端口;图片服务在 Compose 私有网络内访问 `qwen-vision:11434`。
 
 ## 上下文管理
 
 - 群历史窗口 `historyLimit: 32`;未 @ 的普通消息作为待处理上下文收集,不触发模型调用。
 - 消息队列 `collect` 模式,2.5s 去抖,上限 32 条,超出时摘要丢弃(`drop: summarize`)。
-- `contextTokens: 65536`;compaction `safeguard` 模式,压缩后保留最近 16000 token 与最近 8 轮。
+- `contextTokens: 131072`(与 DeepSeek 兜底模型窗口一致,远低于 SenseNova 的 1M 窗口);compaction `safeguard` 模式,压缩后保留最近 20000 token 与最近 8 轮。
 - 群会话 120 分钟无活动自动重置;`context-recovery` 兜底处理溢出/卡死,技术细节不出现在群里。
 - 主动巡检:白天每 10 分钟、夜间每 30 分钟(Asia/Shanghai)读取待处理上下文,无补充价值时输出 `NO_REPLY`。
 

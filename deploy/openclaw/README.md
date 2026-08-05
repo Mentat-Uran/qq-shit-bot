@@ -20,8 +20,7 @@ The Compose project name is `qq-shit-bot`, matching the GitHub remote repository
 - A local `reply_payload_sending` hook suppresses error and model-fallback payloads in QQ groups; the full diagnostic remains in the gateway log for local troubleshooting.
 - QQ direct and group access restricted to configured owner identifiers by default.
 - Startup model discovery disabled because all providers are declared explicitly; model loading still occurs on the first request.
-- Qwen2.5-VL 7B is the normal image-understanding path for fast replies. NVIDIA LocateAnything-3B remains an optional image-fusion fallback for cases where Qwen fails; it is not run serially for every ordinary image, which avoids loading two heavyweight vision paths unnecessarily.
-- Microsoft Mage-VL is loaded directly through Transformers for video understanding. Videos longer than the configured 60-second segment window are analyzed segment by segment with timestamps, then OpenClaw's primary language model turns the intermediate result into the final QQ reply; no video leaves the machine.
+- Qwen2.5-VL 7B is the only enabled image-understanding path. The NVIDIA LocateAnything-3B image-fusion fallback and the Microsoft Mage-VL video bridge are retired: their images, scripts, and Compose overlay are retained for reference only, are no longer built or started, and their model routes have been removed from `openclaw.json` (`tools.media.video.enabled: false`, no CLI media entries). No video analysis is performed by the gateway.
 - The Qwen2.5-VL Ollama service, NVIDIA image-fusion service, Microsoft video bridge, OpenClaw gateway, and context-recovery sidecar are all services in the same Compose project. Qwen has no host port; image and video services reach it at `qwen-vision:11434` on the private Compose network.
 - QQ image messages can use a two-message workflow for mobile clients: send the image first, then send a message that @mentions the bot. Videos are heavier and are analyzed in a group only when the current message directly @mentions the bot or explicitly quotes/replies to that video while mentioning the bot; an old video is never promoted from history. A media message that already includes the bot mention is passed directly; ordinary non-media chatter remains mention-gated.
 - Group sessions have a 120-minute idle reset, and the `context-recovery` sidecar watches the gateway log for an unrecoverable context overflow or stalled agent run and resets the affected QQ group session automatically. Existing log contents are not replayed when the sidecar starts, so an old failure cannot reset a newly started session.
@@ -82,8 +81,8 @@ The normal QQ runtime is split into these services:
 - `openclaw-gateway`: QQ WebSocket, session/context handling, model routing, and final Chinese text replies. It does not load the heavy vision models.
 - `context-recovery`: watches gateway logs and resets a stuck or overflowed QQ group session. It is CPU-only and small.
 - `qwen-vision`: private Ollama `Qwen2.5-VL 7B` service for image understanding and OCR. It is GPU-enabled and loads its model on demand.
-- `image-fusion`: optional GPU-enabled NVIDIA LocateAnything-3B grounding plus Qwen content/OCR fusion. It is under the `heavy-media` Compose profile.
-- `video-bridge`: optional GPU-enabled Microsoft Mage-VL video analysis and long-video segmentation. It is under the `heavy-media` Compose profile.
+- `image-fusion`: retired NVIDIA LocateAnything-3B grounding service. Files and the `heavy-media` profile remain for reference; no longer built or started, and not referenced by the runtime config.
+- `video-bridge`: retired Microsoft Mage-VL video service. Files and the `heavy-media` profile remain for reference; no longer built or started, and not referenced by the runtime config.
 - `qq-diagnostic-filter-init`: one-shot initialization service that seeds the local QQ diagnostics and recovery scripts; it is not a persistent worker and does not use GPU.
 - `openclaw-cli`: an optional `cli` profile for administrative commands; it normally remains stopped and does not use GPU.
 
@@ -97,17 +96,13 @@ To stop even the lightweight image service and keep only the QQ bot and recovery
 
 Stopping the services also writes a `none` media-capability profile into the runtime config. The media routes are removed for that runtime, and old group images/videos are never promoted into a new @mention.
 
-When an image or video needs to be processed, start only the required capability:
+The retired heavy services mean the `video` and `both` modes no longer have model routes in `openclaw.json`; the launcher defaults to `image`:
 
 ```powershell
-.\Start-OpenClawVision.ps1 -Mode image   # lightweight Qwen image path
-.\Start-OpenClawVision.ps1 -Mode video   # Mage-VL video path
-.\Start-OpenClawVision.ps1 -Mode both    # explicit heavy image + video paths
+.\Start-OpenClawVision.ps1 -Mode image   # lightweight Qwen image path (only active mode)
 ```
 
-The helper updates the runtime capability profile and recreates only the gateway/recovery containers so the model policy and mounted media tools stay aligned. `image`, `video`, and `both` are mutually exclusive runtime profiles; the default is `image`.
-
-Docker Desktop's Start/Stop buttons can also start or stop the individual GPU containers, but they do not change OpenClaw's capability profile. After starting containers from the UI, run `Set-OpenClawMediaCapabilities.ps1 -Mode image`, `-Mode video`, or `-Mode both` with `-RestartGateway`; after stopping them, run `Stop-OpenClawVision.ps1` (or set `-Mode none`) so the language model is not told that disabled media abilities are available.
+The helper updates the runtime capability profile and recreates only the gateway/recovery containers so the model policy and mounted media tools stay aligned. `image`, `video`, and `both` are mutually exclusive runtime profiles; the default is `image`. The `video`/`both` modes and the retained `docker-compose.video.yml` overlay exist only for reference and are not part of the current runtime.
 
 The normal launcher starts the gateway and lightweight Qwen image service:
 
@@ -115,7 +110,7 @@ The normal launcher starts the gateway and lightweight Qwen image service:
 .\Start-OpenClawDocker.ps1
 ```
 
-The gateway and recovery sidecar should remain running for QQ replies. Use `Start-OpenClawVision.ps1 -Mode video` only while video work is needed, and stop it afterwards. `both` is intentionally explicit because it starts both heavyweight bridges. The bridges use a shared GPU lock, force model placement on CUDA, cap CPU/RAM, and use a 2 GiB shared-memory segment instead of the former 16 GiB setting.
+The gateway and recovery sidecar should remain running for QQ replies. The retired Mage-VL and LocateAnything bridges (GPU lock, CUDA enforcement, CPU/RAM caps, 2 GiB shared memory) are no longer used; their images and scripts are retained but must not be rebuilt or started.
 
 Every video is first transcoded to a local H.264/AAC proxy at up to 960 pixels, 24 fps, and CRF 30 before Mage-VL sees it. The original upload and proxy are temporary files removed with the request workspace.
 
@@ -149,7 +144,7 @@ The launcher reads QQ and the SenseNova credential from the existing Hermes loca
 
 Windows bind mounts appear world-writable inside Docker Desktop. The launcher therefore runs `qq-diagnostic-filter-init` first; it copies the local hook into a named volume with mode `0644`, so OpenClaw's plugin trust check can load it without weakening the security policy.
 
-The Qwen, video, and image services use the RTX GPU and download public weights into named Docker volumes on first use. Qwen is private to the Compose network and is configured for one loaded model, one parallel request, and a bounded three-minute keep-alive so consecutive image replies do not reload the model. The optional image-fusion and video bridge refuse `device_map=auto` CPU offload: if CUDA is unavailable or any model parameter lands on CPU, the request fails instead of consuming host RAM silently. The video API is local at `http://127.0.0.1:30000`; the image-fusion API is local at `http://127.0.0.1:30001`. The default video upload limit is 200 MiB, and the temporary proxy is limited to 100 MiB, 8 sampled frames per segment, 60 seconds per segment, and 8 segments. LocateAnything-3B is under NVIDIA's non-commercial research license; check that license before any commercial use.
+The Qwen service uses the RTX GPU and downloads public weights into a named Docker volume on first use. Qwen is private to the Compose network and is configured for one loaded model, one parallel request, and a bounded three-minute keep-alive so consecutive image replies do not reload the model. The retired image-fusion and video bridge (previously at `http://127.0.0.1:30001` and `http://127.0.0.1:30000`) are no longer built, started, or routed to; their 200 MiB upload limits, segment sampling, and GPU-lock behavior are documented only for the retained reference files. LocateAnything-3B is under NVIDIA's non-commercial research license; check that license before any commercial use.
 
 ## Verification boundary
 

@@ -1,9 +1,7 @@
 param(
     [ValidateSet('all', 'image', 'video')]
     [string]$Mode = 'all'
-)
-
-$ErrorActionPreference = 'Stop'
+)$ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $composeFiles = @(
     '-f', (Join-Path $scriptDir 'docker-compose.yml'),
@@ -30,8 +28,9 @@ foreach ($service in @('qwen-vision', 'image-fusion')) {
     $running = docker ps --filter "label=com.docker.compose.service=$service" --format '{{.Names}}'
     if ($running) { $imageRunning = $true }
 }
-$videoRunning = [bool](docker ps --filter 'label=com.docker.compose.service=video-bridge' --format '{{.Names}}')
-$capabilityMode = if ($imageRunning -and $videoRunning) { 'both' } elseif ($imageRunning) { 'image' } elseif ($videoRunning) { 'video' } else { 'none' }
+# The retired video-bridge and image-fusion services never contribute to the
+# capability profile anymore; only the in-project Qwen image path can be live.
+$capabilityMode = if ($imageRunning) { 'image' } else { 'none' }
 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'Set-OpenClawMediaCapabilities.ps1') -Mode $capabilityMode -RestartGateway
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to set OpenClaw media capabilities with exit code $LASTEXITCODE"

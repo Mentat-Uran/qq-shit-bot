@@ -92,11 +92,15 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     config = load_openclaw_config()
 
     defaults = config["agents"]["defaults"]
-    assert defaults["contextTokens"] == 65536
+    assert defaults["contextTokens"] == 131072
     assert defaults["timeoutSeconds"] == 900
     assert defaults["utilityModel"] == ""
     assert defaults["imageModel"] == "local-vision/qwen2.5vl:7b"
-    assert defaults["compaction"]["mode"] == "safeguard"
+    assert defaults["compaction"] == {
+        "mode": "safeguard",
+        "keepRecentTokens": 20000,
+        "recentTurnsPreserve": 8,
+    }
     assert config["session"]["resetByType"]["group"] == {
         "mode": "idle",
         "idleMinutes": 120,
@@ -152,22 +156,18 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
         "drop": "summarize",
     }
     image_models = config["tools"]["media"]["models"]
-    assert image_models[0] == {
-        "provider": "local-vision",
-        "model": "qwen2.5vl:7b",
-        "capabilities": ["image"],
-        "timeoutSeconds": 180,
-        "maxChars": 800,
-    }
-    assert image_models[1]["type"] == "cli"
-    assert image_models[1]["capabilities"] == ["image"]
-    assert "nvidia-image-cli.mjs" in " ".join(image_models[1]["args"])
-    video = config["tools"]["media"]["video"]
-    assert video["enabled"] is True
-    assert video["timeoutSeconds"] == 1200
-    assert video["models"][0]["type"] == "cli"
-    assert video["models"][0]["capabilities"] == ["video"]
-    assert "mage-video-cli.mjs" in " ".join(video["models"][0]["args"])
+    assert image_models == [
+        {
+            "provider": "local-vision",
+            "model": "qwen2.5vl:7b",
+            "capabilities": ["image"],
+            "timeoutSeconds": 180,
+            "maxChars": 800,
+        }
+    ]
+    assert config["tools"]["media"]["video"]["enabled"] is False
+    assert "nvidia-image-cli.mjs" not in json.dumps(config)
+    assert "mage-video-cli.mjs" not in json.dumps(config)
 
     serialized = json.dumps(config)
     assert "openai/" not in serialized
@@ -265,7 +265,9 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     capability_script = (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").read_text(encoding="utf-8")
     assert "media-capabilities.json" in capability_script
     assert "Never claim to have seen an image" in capability_script
-    assert "ValidateSet('none', 'image', 'video', 'both')" in capability_script
+    assert "ValidateSet('none', 'image')" in capability_script
+    assert "are retired" in (DEPLOY_DIR / "Start-OpenClawVision.ps1").read_text(encoding="utf-8")
+    assert "are retired" in (DEPLOY_DIR / "Start-OpenClawDocker.ps1").read_text(encoding="utf-8")
     assert "Remove('imageModel')" in capability_script
     assert "Remove('local-vision')" in capability_script
     assert "switch ($RestartGateway)" in capability_script or "if ($RestartGateway)" in capability_script

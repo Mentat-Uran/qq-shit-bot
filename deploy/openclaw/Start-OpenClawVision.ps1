@@ -12,6 +12,10 @@ $composeFiles = @(
     '-f', (Join-Path $scriptDir 'docker-compose.video.yml')
 )
 
+if ($Mode -in @('video', 'both')) {
+    throw 'The Mage-VL video bridge and LocateAnything image-fusion services are retired; only -Mode image is supported.'
+}
+
 function Invoke-Compose {
     param([string[]]$Arguments)
     & docker compose @composeFiles @Arguments

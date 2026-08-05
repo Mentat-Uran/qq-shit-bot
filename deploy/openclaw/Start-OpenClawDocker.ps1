@@ -12,6 +12,9 @@ Set-StrictMode -Version Latest
 if ($NoVideo) {
     $AllMedia = $false
 }
+if ($AllMedia) {
+    throw 'The Mage-VL video bridge and LocateAnything image-fusion services are retired; -AllMedia is no longer supported.'
+}
 if ($AllMedia -and $NoVision) {
     throw 'AllMedia requires the Qwen image service; remove -NoVision.'
 }

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('none', 'image', 'video', 'both')]
+    [ValidateSet('none', 'image')]
     [string]$Mode = 'none',
     [switch]$RestartGateway
 )
@@ -19,8 +19,7 @@ if (-not (Test-Path -LiteralPath $sourceConfig -PathType Leaf)) {
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $runtimeConfig) | Out-Null
 
 $config = Get-Content -LiteralPath $sourceConfig -Raw -Encoding utf8 | ConvertFrom-Json
-$imageEnabled = $Mode -in @('image', 'both')
-$videoEnabled = $Mode -in @('video', 'both')
+$imageEnabled = $Mode -eq 'image'
 
 if (-not $imageEnabled) {
     $config.agents.defaults.PSObject.Properties.Remove('imageModel')
@@ -28,15 +27,12 @@ if (-not $imageEnabled) {
 }
 
 $media = $config.tools.media
-if ($imageEnabled -and $videoEnabled) {
-    # Keep the canonical source media configuration.
-} elseif ($imageEnabled) {
+if ($imageEnabled) {
     # The lightweight image profile uses the in-project Qwen service only.
-    # Do not leave a dead heavy image-fusion CLI as the first route.
+    # The retired heavy CLI and video routes are removed so they are never
+    # called even if the retained compose overlay is started manually.
     $media.models = @($media.models | Where-Object { $_.type -ne 'cli' })
     $media.PSObject.Properties.Remove('video')
-} elseif ($videoEnabled) {
-    $media.PSObject.Properties.Remove('models')
 } else {
     $config.tools.PSObject.Properties.Remove('media')
 }
@@ -44,8 +40,6 @@ if ($imageEnabled -and $videoEnabled) {
 $capabilityText = switch ($Mode) {
     'none' { '[Runtime media capability policy] Image and video services are disabled. Never claim to have seen an image, read image text, or watched a video. Explicitly say that the corresponding local capability is disabled.' }
     'image' { '[Runtime media capability policy] Only image understanding is enabled. Use local image results for images and OCR, but never claim to read or understand video.' }
-    'video' { '[Runtime media capability policy] Only video understanding is enabled. Use local video results for video, but never claim to read images or image text.' }
-    'both' { '[Runtime media capability policy] Image and video understanding are enabled. Answer only from the actual local model result and clearly state when the result is unavailable or uncertain.' }
 }
 $groupPrompt = [string]$config.channels.qqbot.groups.'*'.prompt
 $config.channels.qqbot.groups.'*'.prompt = ($groupPrompt + "`n`n" + $capabilityText)
