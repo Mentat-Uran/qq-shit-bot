@@ -1,0 +1,57 @@
+name: OpenClaw validation
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check pytest pyyaml
+      - name: Run deployment tests
+        run: python -m pytest tests/deploy/ -q
+
+  ruff:
+    name: ruff enforcement (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check repository hygiene
+        run: git diff --check
+
+  typecheck:
+    name: typecheck (apps/desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check JavaScript syntax
+        run: |
+          node --check deploy/openclaw/context-recovery.mjs
+          node --check deploy/openclaw/qq-diagnostic-filter.mjs
+          node --check deploy/openclaw/qqbot-history-media-patch.mjs
+          node --check deploy/openclaw/web-search-patch.mjs
+
+  uv-lock:
+    name: uv lock --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm legacy project metadata is absent
+        run: test ! -e pyproject.toml && test ! -e uv.lock
