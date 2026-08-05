@@ -14,7 +14,6 @@ if not exist "%LAUNCHER%" (
 echo Starting OpenClaw QQ Bot from:
 echo %PROJECT_DIR%
 echo Default media: local Qwen image understanding only
-echo Video and heavy image fusion: start with deploy\openclaw\Start-OpenClawVision.ps1 when needed
 echo.
 
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%LAUNCHER%"

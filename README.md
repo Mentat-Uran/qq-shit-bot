@@ -2,7 +2,7 @@
 
 这是一个 QQ 群聊机器人项目。当前唯一运行形态是 **OpenClaw + Docker**:OpenClaw `2026.7.1` 与官方 `@openclaw/qqbot` 插件全部运行在 Docker 中,宿主机不安装 OpenClaw、Node.js 或 QQ 插件。
 
-本仓库保留上游 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的完整源码(见 [`docs/UPSTREAM_README.md`](docs/UPSTREAM_README.md)),方便群友复现和继续开发;但 **Hermes 网关已废弃**,不再是本项目的运行方式。
+仓库只保留 OpenClaw Docker 运行链路与 QQ 机器人相关文档,不再维护本地运行代码或其他部署方案。
 
 ## 功能
 
@@ -28,7 +28,7 @@ cp .env.example .env
 
 ### Windows
 
-直接运行 [`scripts/windows/Start-OpenClawQQBot.bat`](scripts/windows/Start-OpenClawQQBot.bat)(或桌面快捷方式)。它调用 `deploy/openclaw/Start-OpenClawDocker.ps1`,从本地 Hermes 环境读取 QQ 与 SenseNova 凭据,并把官方 DeepSeek key 从 Windows DPAPI 注入运行环境;密钥永不写入仓库。
+直接运行 [`scripts/windows/Start-OpenClawQQBot.bat`](scripts/windows/Start-OpenClawQQBot.bat)(或桌面快捷方式)。它调用 `deploy/openclaw/Start-OpenClawDocker.ps1`,从 `deploy/openclaw/.env` 读取 QQ 与模型凭据;密钥永不写入仓库。
 
 启动后打开 Control UI:`http://127.0.0.1:18789`,用 `.env` 里的 `OPENCLAW_GATEWAY_TOKEN` 认证。
 
@@ -46,7 +46,7 @@ docker compose exec qwen-vision ollama list
 ## 模型与额度切换
 
 - 主模型:SenseNova `deepseek-v4-flash`(`https://token.sensenova.cn/v1`)。
-- 兜底模型:官方 DeepSeek `deepseek-chat`(`https://api.deepseek.com/v1`),key 由 Windows 启动器从 Hermes DPAPI 解密注入,或由 `DEEPSEEK_API_KEY` 环境变量提供。
+- 兜底模型:官方 DeepSeek `deepseek-chat`(`https://api.deepseek.com/v1`),key 由 `DEEPSEEK_API_KEY` 环境变量提供。
 - `Watch-OpenClawModel.ps1` 每 5 分钟以 1-token 请求探测商汤;429/额度受限记入本地日志,模型请求失败时自动走 DeepSeek 兜底。错误、兜底与内部诊断 payload 会被本地 `reply_payload_sending` 钩子过滤,只留在网关日志里。
 
 ## 部署架构
@@ -67,12 +67,6 @@ Qwen 不暴露宿主机端口;图片服务在 Compose 私有网络内访问 `qwe
 - 群会话 120 分钟无活动自动重置;`context-recovery` 兜底处理溢出/卡死,技术细节不出现在群里。
 - 主动巡检:白天每 10 分钟、夜间每 30 分钟(Asia/Shanghai)读取待处理上下文,无补充价值时输出 `NO_REPLY`。
 
-## Hermes 旧版(已废弃)
-
-- 上游 Hermes Agent 源码保留在仓库中(见 [`docs/UPSTREAM_README.md`](docs/UPSTREAM_README.md)),仅作参考与复现。
-- 根目录 `docker-compose.yml` / `docker-compose.windows.yml`、`scripts/windows/` 下的 Hermes 启动脚本(如 `启动HermesGateway.bat`)、`config.example.yaml` 等均为遗留物,不再维护;不要据此判断当前部署。
-- 旧版 Hermes 网关与 OpenClaw QQ 网关不能同时连接同一 QQ 凭据。
-
 ## 开发和 Issue
 
 提交 Issue 时请尽量提供:
@@ -85,4 +79,4 @@ Qwen 不暴露宿主机端口;图片服务在 Compose 私有网络内访问 `qwe
 
 ## 许可证
 
-本项目使用 MIT License。上游 Hermes Agent 的版权和许可证声明保留在 [`LICENSE`](LICENSE) 中。
+本项目使用 MIT License,详见 [`LICENSE`](LICENSE)。

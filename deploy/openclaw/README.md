@@ -2,21 +2,21 @@
 
 This deployment runs OpenClaw and the official `@openclaw/qqbot` plugin entirely in Docker. It does not install OpenClaw, Node.js packages, or the QQ plugin on the host.
 
-The deployment is independent of the repository's Hermes container. Both can exist on the same machine, but only one process should connect with a given QQ Bot credential at a time.
+This is the only supported deployment for the QQ bot. OpenClaw and all QQ bot services run in Docker; the host only needs Docker Desktop or Docker Engine.
 
 The Compose project name is `qq-shit-bot`, matching the GitHub remote repository. Service containers therefore use names such as `qq-shit-bot-openclaw-gateway-1`; the existing model and log volumes keep their old names so the downloaded weights and runtime logs are not copied or redownloaded during the rename.
 
 ## What it configures
 
 - OpenClaw `2026.7.1` and `@openclaw/qqbot` `2026.7.1`, pinned together.
-- SenseNova `deepseek-v4-flash` as the primary paid text-model route, with the official DeepSeek `deepseek-chat` API as the configured fallback when SenseNova fails. The DeepSeek key is loaded from the existing Hermes DPAPI secret at Windows launcher time and is not stored in the repository.
+- SenseNova `deepseek-v4-flash` as the primary paid text-model route, with the official DeepSeek `deepseek-chat` API as the configured fallback when SenseNova fails. The DeepSeek key is read from the ignored `.env` file and is not stored in the repository.
 - The repository's `AGENTS.md` and `SOUL.md` as the OpenClaw workspace context.
 - Token-authenticated Control UI published only on `127.0.0.1`.
 - OpenClaw's operator terminal disabled.
 - `exec`, `read`, and `write` agent tools denied globally and in QQ groups.
 - Only the official QQ plugin and the local QQ diagnostic filter are allowlisted by default.
 - The unrelated bundled Codex extension is explicitly disabled because it is not needed by the QQ bot and is incompatible with this pinned gateway runtime.
-- Web search uses OpenClaw's bundled DuckDuckGo provider, matching Hermes' currently auto-detected no-key `ddgs` backend; no search credential is copied or exposed.
+- Web search uses OpenClaw's bundled no-key DuckDuckGo provider; no search credential is copied or exposed.
 - A local `reply_payload_sending` hook suppresses error and model-fallback payloads in QQ groups; the full diagnostic remains in the gateway log for local troubleshooting.
 - QQ direct and group access restricted to configured owner identifiers by default.
 - Startup model discovery disabled because all providers are declared explicitly; model loading still occurs on the first request.
@@ -29,7 +29,7 @@ The Compose project name is `qq-shit-bot`, matching the GitHub remote repository
 
 QQ group delivery is guarded separately from model failover. Successful fallback replies are delivered normally, while `isError` and `isFallbackNotice` reply payloads are cancelled before the QQ adapter sees them. This prevents provider, quota, rate-limit, busy, and internal stack details from appearing in the group without hiding the corresponding gateway logs.
 
-The Windows launcher injects the official DeepSeek key into the gateway process from Hermes' local DPAPI secret when that secret is available. It never writes the key to the repository. The old standalone Hermes gateway must not run at the same time as this QQ gateway, because it can independently connect with the same QQ credentials.
+The Windows launcher reads the official DeepSeek key from the ignored `.env` file. It never writes the key to the repository.
 
 ## Start
 
@@ -81,8 +81,7 @@ The normal QQ runtime is split into these services:
 - `openclaw-gateway`: QQ WebSocket, session/context handling, model routing, and final Chinese text replies. It does not load the heavy vision models.
 - `context-recovery`: watches gateway logs and resets a stuck or overflowed QQ group session. It is CPU-only and small.
 - `qwen-vision`: private Ollama `Qwen2.5-VL 7B` service for image understanding and OCR. It is GPU-enabled and loads its model on demand.
-- `image-fusion`: retired NVIDIA LocateAnything-3B grounding service. Files and the `heavy-media` profile remain for reference; no longer built or started, and not referenced by the runtime config.
-- `video-bridge`: retired Microsoft Mage-VL video service. Files and the `heavy-media` profile remain for reference; no longer built or started, and not referenced by the runtime config.
+- `image-fusion` and `video-bridge`: retained image artifacts only; they are not part of the Compose files used by the supported deployment and are never built or started.
 - `qq-diagnostic-filter-init`: one-shot initialization service that seeds the local QQ diagnostics and recovery scripts; it is not a persistent worker and does not use GPU.
 - `openclaw-cli`: an optional `cli` profile for administrative commands; it normally remains stopped and does not use GPU.
 
@@ -124,7 +123,7 @@ The proactive review is intentionally periodic rather than per-message: it reads
 "requireMention": false
 ```
 
-On Windows, rerun the launcher after changing configuration so the Hermes QQ credentials are injected again:
+On Windows, rerun the launcher after changing `.env` configuration:
 
 ```bash
 powershell -ExecutionPolicy Bypass -File .\Start-OpenClawDocker.ps1 -NoWatcher
@@ -134,13 +133,13 @@ To allow more QQ users, add direct-message user OpenIDs to `allowFrom` and group
 
 ## Windows local deployment
 
-When the prior Hermes installation is under `C:\HermesWorkspace`, start the complete local stack with:
+Start the complete local stack with:
 
 ```powershell
 .\Start-OpenClawDocker.ps1
 ```
 
-The launcher reads QQ and the SenseNova credential from the existing Hermes local environment, mounts `C:\HermesWorkspace` as the OpenClaw workspace, starts Qwen plus the OpenClaw gateway and context-recovery sidecar, installs/validates the QQ plugin, and starts the quota watcher. During migration it reuses the existing `local-vision_hermes-vision-model-cache` volume when present, then removes the legacy `hermes-vision` container after the in-project Qwen service is ready. Use `-AllMedia` only when you deliberately want all GPU services at once. It does not write credentials to the repository. Do not run the old Hermes gateway with the same QQ credentials at the same time.
+The launcher reads QQ and model credentials from the ignored `.env` file, uses `runtime/workspace` for the OpenClaw workspace, starts Qwen plus the OpenClaw gateway and context-recovery sidecar, installs/validates the QQ plugin, and starts the quota watcher. It does not write credentials to the repository.
 
 Windows bind mounts appear world-writable inside Docker Desktop. The launcher therefore runs `qq-diagnostic-filter-init` first; it copies the local hook into a named volume with mode `0644`, so OpenClaw's plugin trust check can load it without weakening the security policy.
 

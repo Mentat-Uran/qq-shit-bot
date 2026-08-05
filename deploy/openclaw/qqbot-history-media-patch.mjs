@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const PATCH_MARKER = "/* hermes-qq-history-media-v1 */";
-const MEDIA_CAPABILITY_MARKER = "/* hermes-qq-media-capabilities-v1 */";
-const VIDEO_MENTION_GATE_MARKER = "/* hermes-qq-video-mention-gate-v2 */";
-const LEGACY_VIDEO_MENTION_GATE_MARKER = "/* hermes-qq-video-mention-gate-v1 */";
-const HISTORICAL_MEDIA_DISABLED_MARKER = "/* hermes-qq-historical-media-disabled-v2 */";
+const PATCH_MARKER = "/* qqbot-history-media-v1 */";
+const MEDIA_CAPABILITY_MARKER = "/* qqbot-media-capabilities-v1 */";
+const VIDEO_MENTION_GATE_MARKER = "/* qqbot-video-mention-gate-v2 */";
+const LEGACY_VIDEO_MENTION_GATE_MARKER = "/* qqbot-video-mention-gate-v1 */";
+const HISTORICAL_MEDIA_DISABLED_MARKER = "/* qqbot-historical-media-disabled-v2 */";
 const MEDIA_CAPABILITIES_PATH = "/home/node/.openclaw/media-capabilities.json";
 const stateDir = process.env.OPENCLAW_STATE_DIR || "/home/node/.openclaw";
 const projectsDir = path.join(stateDir, "npm", "projects");
@@ -81,7 +81,7 @@ ${MEDIA_CAPABILITY_MARKER}
 
 ${VIDEO_MENTION_GATE_MARKER}
 `;
-  const existingVideoGateCall = /\n\t\/\* hermes-qq-video-mention-gate-v[12] \*\/\n\tprocessed = filterVideoByMention\(\n\t\tprocessed,\n\t\t!event\?\.groupOpenid \|\| groupInfo\?\.gate\?\.effectiveWasMentioned === true,\n\t\);\n/g;
+  const existingVideoGateCall = /\n\t\/\* qqbot-video-mention-gate-v[12] \*\/\n\tprocessed = filterVideoByMention\(\n\t\tprocessed,\n\t\t!event\?\.groupOpenid \|\| groupInfo\?\.gate\?\.effectiveWasMentioned === true,\n\t\);\n/g;
   source = source.replace(existingVideoGateCall, "\n");
   if (!source.includes(MEDIA_CAPABILITY_MARKER)) {
     source = source.replace(`${PATCH_MARKER}\n`, `${helper}${PATCH_MARKER}\n`);
@@ -148,7 +148,7 @@ function patchBundle(file) {
   if (source.includes(PATCH_MARKER)) {
     const upgraded = upgradeMediaCapabilityGate(disableHistoricalMediaPromotion(source));
     if (upgraded === source) return false;
-    const tempFile = `${file}.hermes-history-media.tmp`;
+    const tempFile = `${file}.qqbot-history-media.tmp`;
     fs.writeFileSync(tempFile, upgraded, "utf8");
     fs.renameSync(tempFile, file);
     return true;
@@ -204,7 +204,7 @@ function patchBundle(file) {
   );
   source = upgradeMediaCapabilityGate(source);
 
-  const tempFile = `${file}.hermes-history-media.tmp`;
+  const tempFile = `${file}.qqbot-history-media.tmp`;
   fs.writeFileSync(tempFile, source, "utf8");
   fs.renameSync(tempFile, file);
   return true;
