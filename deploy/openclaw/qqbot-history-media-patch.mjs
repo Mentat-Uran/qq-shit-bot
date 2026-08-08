@@ -6,6 +6,13 @@ const MEDIA_CAPABILITY_MARKER = "/* qqbot-media-capabilities-v1 */";
 const VIDEO_MENTION_GATE_MARKER = "/* qqbot-video-mention-gate-v2 */";
 const LEGACY_VIDEO_MENTION_GATE_MARKER = "/* qqbot-video-mention-gate-v1 */";
 const HISTORICAL_MEDIA_DISABLED_MARKER = "/* qqbot-historical-media-disabled-v2 */";
+const LEGACY_MARKER_REPLACEMENTS = [
+  ["/* hermes-qq-history-media-v1 */", PATCH_MARKER],
+  ["/* hermes-qq-media-capabilities-v1 */", MEDIA_CAPABILITY_MARKER],
+  ["/* hermes-qq-video-mention-gate-v2 */", VIDEO_MENTION_GATE_MARKER],
+  ["/* hermes-qq-video-mention-gate-v1 */", LEGACY_VIDEO_MENTION_GATE_MARKER],
+  ["/* hermes-qq-historical-media-disabled-v2 */", HISTORICAL_MEDIA_DISABLED_MARKER]
+];
 const MEDIA_CAPABILITIES_PATH = "/home/node/.openclaw/media-capabilities.json";
 const stateDir = process.env.OPENCLAW_STATE_DIR || "/home/node/.openclaw";
 const projectsDir = path.join(stateDir, "npm", "projects");
@@ -45,6 +52,14 @@ function replaceOnce(source, label, before, after) {
     throw new Error(`QQ history-media patch marker is ambiguous: ${label}`);
   }
   return `${source.slice(0, index)}${after}${source.slice(index + before.length)}`;
+}
+
+function normalizeLegacyMarkers(source) {
+  for (const [legacy, current] of LEGACY_MARKER_REPLACEMENTS) {
+    if (!source.includes(legacy)) continue;
+    source = source.replaceAll(legacy, current);
+  }
+  return source;
 }
 
 function upgradeMediaCapabilityGate(source) {
@@ -106,18 +121,21 @@ ${VIDEO_MENTION_GATE_MARKER}
     );
   }
   if (!source.includes("processed = filterVideoByMention(")) {
-    source = replaceOnce(
-      source,
-      "video-gate-after-group-info",
-      `\t}\n\t/* ${HISTORICAL_MEDIA_DISABLED_MARKER.slice(3, -3)} */`,
-      `\t}
+    const gateAnchor = `\t}\n\t/* ${HISTORICAL_MEDIA_DISABLED_MARKER.slice(3, -3)} */`;
+    if (source.includes(gateAnchor)) {
+      source = replaceOnce(
+        source,
+        "video-gate-after-group-info",
+        gateAnchor,
+        `\t}
 \t${VIDEO_MENTION_GATE_MARKER}
 \tprocessed = filterVideoByMention(
 \t\tprocessed,
 \t\t!event?.groupOpenid || groupInfo?.gate?.effectiveWasMentioned === true,
 \t);
 \t/* ${HISTORICAL_MEDIA_DISABLED_MARKER.slice(3, -3)} */`,
-    );
+      );
+    }
   }
   return source;
 }
@@ -145,6 +163,7 @@ function disableHistoricalMediaPromotion(source) {
 
 function patchBundle(file) {
   let source = fs.readFileSync(file, "utf8");
+  source = normalizeLegacyMarkers(source);
   if (source.includes(PATCH_MARKER)) {
     const upgraded = upgradeMediaCapabilityGate(disableHistoricalMediaPromotion(source));
     if (upgraded === source) return false;

@@ -88,7 +88,7 @@ if [ -z "$gateway_token" ] || [ "$gateway_token" = "replace-with-a-random-token"
     replace_env_value OPENCLAW_GATEWAY_TOKEN "$(openssl rand -hex 32)"
 fi
 
-for key in QQBOT_APP_ID QQBOT_CLIENT_SECRET QQBOT_ALLOWED_USER_OPENID QQBOT_ALLOWED_MEMBER_OPENID QQBOT_HOME_CHANNEL SENSENOVA_API_KEY; do
+for key in QQBOT_APP_ID QQBOT_CLIENT_SECRET QQBOT_ALLOWED_USER_OPENID QQBOT_ALLOWED_MEMBER_OPENID QQBOT_HOME_CHANNEL SENSENOVA_API_KEY DEEPSEEK_API_KEY; do
     require_configured "$key"
 done
 
@@ -100,7 +100,12 @@ fi
 mkdir -p "$RUNTIME_DIR/config" "$RUNTIME_DIR/workspace"
 chmod 700 "$RUNTIME_DIR" "$RUNTIME_DIR/config" "$RUNTIME_DIR/workspace"
 
-if [ ! -f "$RUNTIME_DIR/config/openclaw.json" ]; then
+if [ -f "$RUNTIME_DIR/config/openclaw.json" ]; then
+    if grep -qE 'mage-video-cli\.mjs|nvidia-image-cli\.mjs' "$RUNTIME_DIR/config/openclaw.json"; then
+        echo "Migrating retired video/image CLI routes out of $RUNTIME_DIR/config/openclaw.json." >&2
+        cp "$SCRIPT_DIR/openclaw.json" "$RUNTIME_DIR/config/openclaw.json"
+    fi
+else
     cp "$SCRIPT_DIR/openclaw.json" "$RUNTIME_DIR/config/openclaw.json"
 fi
 for context_file in AGENTS.md SOUL.md; do

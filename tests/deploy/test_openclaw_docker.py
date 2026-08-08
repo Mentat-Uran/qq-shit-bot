@@ -202,6 +202,15 @@ def test_setup_invokes_openclaw_only_through_docker_compose():
     assert "pnpm install" not in setup
 
 
+def test_setup_requires_fallback_key_and_migrates_legacy_media_config():
+    setup = (DEPLOY_DIR / "setup.sh").read_text()
+
+    assert "SENSENOVA_API_KEY DEEPSEEK_API_KEY" in setup
+    assert "DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in (DEPLOY_DIR / ".env.example").read_text()
+    assert "mage-video-cli\\.mjs|nvidia-image-cli\\.mjs" in setup
+    assert "Migrating retired video/image CLI routes" in setup
+
+
 def test_windows_launcher_and_local_compose_overlay_are_present():
     launcher = (DEPLOY_DIR / "Start-OpenClawDocker.ps1").read_text()
     watcher = (DEPLOY_DIR / "Watch-OpenClawModel.ps1").read_text()
@@ -236,6 +245,7 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert "Remove('imageModel')" in capability_script
     assert "Remove('local-vision')" in capability_script
     assert "switch ($RestartGateway)" in capability_script or "if ($RestartGateway)" in capability_script
+    assert "$videoEnabled = $false" in capability_script
 
     history_patch = (DEPLOY_DIR / "qqbot-history-media-patch.mjs").read_text(encoding="utf-8")
     assert "qqbot-media-capabilities-v1" in history_patch
@@ -244,6 +254,8 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert "qqbot-video-mention-gate-v2" in history_patch
     assert "video-gate-after-group-info" in history_patch
     assert "!event?.groupOpenid || groupInfo?.gate?.effectiveWasMentioned === true" in history_patch
+    assert "hermes-qq-history-media-v1" in history_patch
+    assert "normalizeLegacyMarkers" in history_patch
     vision_launcher = (DEPLOY_DIR / "Start-OpenClawVision.ps1").read_text(encoding="utf-8")
     assert "qwen-vision" in vision_launcher
     assert "--force-recreate" in vision_launcher

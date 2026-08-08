@@ -20,6 +20,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $runtimeConfig) | 
 
 $config = Get-Content -LiteralPath $sourceConfig -Raw -Encoding utf8 | ConvertFrom-Json
 $imageEnabled = $Mode -eq 'image'
+$videoEnabled = $false
 
 if (-not $imageEnabled) {
     $config.agents.defaults.PSObject.Properties.Remove('imageModel')
