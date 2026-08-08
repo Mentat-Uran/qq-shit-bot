@@ -238,7 +238,7 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert (DEPLOY_DIR / "Stop-OpenClawVision.ps1").exists()
     assert (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").exists()
 
-capability_script = (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").read_text(encoding="utf-8")
+    capability_script = (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").read_text(encoding="utf-8")
     assert "media-capabilities.json" in capability_script
     assert "Never claim to have seen an image" in capability_script
     assert "ValidateSet('none', 'image')" in capability_script
