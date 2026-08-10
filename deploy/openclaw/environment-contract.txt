@@ -1,0 +1,25 @@
+# OpenClaw environment contract: NAME|required|required-placeholder
+# Keep this file value-free so Unix and Windows validators use the same rules.
+OPENCLAW_IMAGE|optional|latest
+OPENCLAW_QQBOT_PLUGIN|optional|latest
+OPENCLAW_GATEWAY_PORT|optional|
+OPENCLAW_GATEWAY_TOKEN|required|replace-with-a-random-token
+OPENCLAW_TZ|required|replace-with-timezone
+OPENCLAW_UID|optional|
+OPENCLAW_GID|optional|
+QQBOT_APP_ID|required|replace-with-qq-app-id
+QQBOT_CLIENT_SECRET|required|replace-with-qq-app-secret
+QQBOT_ALLOWED_USER_OPENID|required|replace-with-dm-user-openid
+QQBOT_ALLOWED_MEMBER_OPENID|required|replace-with-group-member-openid
+QQBOT_HOME_CHANNEL|required|replace-with-proactive-review-group-openid
+SENSENOVA_API_KEY|required|replace-with-sensenova-api-key
+DEEPSEEK_API_KEY|required|replace-with-deepseek-api-key
+QWEN_IMAGE|optional|latest
+QWEN_BASE_URL|optional|
+QWEN_MODEL_ID|optional|
+
+# Legacy aliases are migrated only when the canonical value is empty or a placeholder.
+# alias->canonical
+HERMES_DEEPSEEK_API_KEY|DEEPSEEK_API_KEY
+HERMES_QQBOT_HOME_CHANNEL|QQBOT_HOME_CHANNEL
+QQBOT_GROUP_OPENID|QQBOT_HOME_CHANNEL

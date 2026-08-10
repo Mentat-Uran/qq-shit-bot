@@ -72,17 +72,12 @@ function Set-RuntimeEnvironment {
         throw "OpenClaw environment file was not found: $envFile"
     }
 
-    foreach ($target in @('QQBOT_APP_ID', 'QQBOT_CLIENT_SECRET', 'QQBOT_ALLOWED_USER_OPENID', 'QQBOT_ALLOWED_MEMBER_OPENID', 'SENSENOVA_API_KEY')) {
+    foreach ($target in @('QQBOT_APP_ID', 'QQBOT_CLIENT_SECRET', 'QQBOT_ALLOWED_USER_OPENID', 'QQBOT_ALLOWED_MEMBER_OPENID', 'QQBOT_HOME_CHANNEL', 'SENSENOVA_API_KEY', 'DEEPSEEK_API_KEY')) {
         $value = Get-DotEnvValue -Path $envFile -Name $target
         if ([string]::IsNullOrWhiteSpace($value)) {
             throw "Required OpenClaw value is missing: $target"
         }
         Set-Item -Path ("Env:{0}" -f $target) -Value $value
-    }
-
-    $deepSeekKey = Get-DotEnvValue -Path $envFile -Name 'DEEPSEEK_API_KEY'
-    if (-not [string]::IsNullOrWhiteSpace($deepSeekKey) -and $deepSeekKey -notlike 'replace-with-*') {
-        $env:DEEPSEEK_API_KEY = $deepSeekKey
     }
 
     $plugin = Get-DotEnvValue -Path $envFile -Name 'OPENCLAW_QQBOT_PLUGIN'
@@ -270,6 +265,12 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 }
 if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     throw "Local OpenClaw env file is missing: $envFile"
+}
+
+$environmentValidator = Join-Path $scriptDir 'Test-OpenClawEnvironment.ps1'
+& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $environmentValidator -EnvFile $envFile -ApplyMigration -GenerateGatewayToken
+if ($LASTEXITCODE -ne 0) {
+    throw "OpenClaw environment validation failed with exit code $LASTEXITCODE."
 }
 Set-RuntimeEnvironment
 Ensure-RuntimeFiles
