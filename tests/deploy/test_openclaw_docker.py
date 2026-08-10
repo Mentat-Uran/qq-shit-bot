@@ -204,6 +204,8 @@ def test_setup_invokes_openclaw_only_through_docker_compose():
     assert "docker-compose" in setup
     assert "npm install" not in setup
     assert "pnpm install" not in setup
+    assert 'case "$home_channel" in' in setup
+    assert "''|replace-with-*)" in setup
 
 
 def test_setup_requires_fallback_key_and_migrates_legacy_media_config():
@@ -290,3 +292,8 @@ def test_windows_batch_launcher_points_to_openclaw_startup_script():
     assert "--pull never" in launcher
     assert "powershell" not in launcher.lower()
     assert "sk-" not in launcher
+    assert "migrate_env_alias DEEPSEEK_API_KEY HERMES_DEEPSEEK_API_KEY" in launcher
+    assert "migrate_env_alias QQBOT_HOME_CHANNEL QQBOT_GROUP_OPENID" in launcher
+    assert 'copy /y "openclaw.json" "runtime\\config\\openclaw.json" >nul\nif errorlevel 1 goto :fail_after_pushd' in launcher
+    assert 'copy /y "%PROJECT_DIR%\\AGENTS.md" "runtime\\workspace\\AGENTS.md" >nul\nif errorlevel 1 goto :fail_after_pushd' in launcher
+    assert 'copy /y "%PROJECT_DIR%\\SOUL.md" "runtime\\workspace\\SOUL.md" >nul\nif errorlevel 1 goto :fail_after_pushd' in launcher

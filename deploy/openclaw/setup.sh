@@ -141,10 +141,12 @@ register_proactive_review() {
     cron_expression=$2
     description=$3
     home_channel=$(env_value QQBOT_HOME_CHANNEL)
-    if [ -z "$home_channel" ] || [ "$home_channel" = "replace-with-*" ]; then
+    case "$home_channel" in
+        ''|replace-with-*)
         echo "QQBOT_HOME_CHANNEL is not set; skipping proactive review job: $job_name"
         return 0
-    fi
+        ;;
+    esac
     prompt=$(cat "$SCRIPT_DIR/proactive-review-prompt.txt")
     timezone=$(env_value OPENCLAW_TZ)
     session_key="agent:main:qqbot:group:$home_channel"

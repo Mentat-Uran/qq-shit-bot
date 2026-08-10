@@ -227,8 +227,7 @@ if (-not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
 $values = Read-DotEnv -Path $EnvFile
 $needsQr = $ForceQr -or
     (Is-Placeholder ([string]$values['QQBOT_APP_ID'])) -or
-    (Is-Placeholder ([string]$values['QQBOT_CLIENT_SECRET'])) -or
-    (Is-Placeholder ([string]$values['QQBOT_ALLOWED_USER_OPENID']))
+    (Is-Placeholder ([string]$values['QQBOT_CLIENT_SECRET']))
 $qrCredentials = $null
 $temporaryPluginInstalled = $false
 $cleanupFailed = $false

@@ -35,6 +35,10 @@ for /f "usebackq tokens=1,* delims==" %%A in ("%ENV_FILE%") do (
     if /i "%%A"=="QWEN_IMAGE" set "QWEN_IMAGE=%%B"
 )
 
+call :migrate_env_alias DEEPSEEK_API_KEY HERMES_DEEPSEEK_API_KEY
+call :migrate_env_alias QQBOT_HOME_CHANNEL HERMES_QQBOT_HOME_CHANNEL
+call :migrate_env_alias QQBOT_HOME_CHANNEL QQBOT_GROUP_OPENID
+
 call :require_env QQBOT_APP_ID replace-with-qq-app-id
 if errorlevel 1 goto :fail
 call :require_env QQBOT_CLIENT_SECRET replace-with-qq-app-secret
@@ -53,7 +57,9 @@ pushd "%DEPLOY_DIR%" || goto :fail
 if not exist "runtime\config" mkdir "runtime\config"
 if not exist "runtime\workspace" mkdir "runtime\workspace"
 copy /y "openclaw.json" "runtime\config\openclaw.json" >nul
+if errorlevel 1 goto :fail_after_pushd
 copy /y "%PROJECT_DIR%\AGENTS.md" "runtime\workspace\AGENTS.md" >nul
+if errorlevel 1 goto :fail_after_pushd
 copy /y "%PROJECT_DIR%\SOUL.md" "runtime\workspace\SOUL.md" >nul
 if errorlevel 1 goto :fail_after_pushd
 >"runtime\config\media-capabilities.json" echo {"image":true,"video":false}
@@ -138,6 +144,17 @@ findstr /b /c:"%CHECK_KEY%=%CHECK_PLACEHOLDER%" "%ENV_FILE%" >nul 2>&1
 if not errorlevel 1 (
     echo ERROR: %CHECK_KEY% still has its placeholder value.
     exit /b 1
+)
+exit /b 0
+
+:migrate_env_alias
+set "CANONICAL_KEY=%~1"
+set "LEGACY_KEY=%~2"
+findstr /r /b /c:"%CANONICAL_KEY%=." "%ENV_FILE%" >nul 2>&1
+if not errorlevel 1 exit /b 0
+for /f "usebackq tokens=1,* delims==" %%A in (`findstr /r /b /c:"%LEGACY_KEY%=." "%ENV_FILE%"`) do (
+    if not "%%B"=="" >>"%ENV_FILE%" echo %CANONICAL_KEY%=%%B
+    exit /b 0
 )
 exit /b 0
 
