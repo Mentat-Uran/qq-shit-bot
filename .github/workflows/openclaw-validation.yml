@@ -3,6 +3,7 @@ name: OpenClaw validation
 on:
   pull_request:
   push:
+    branches: [main]
 
 permissions:
   contents: read
