@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { buildInjectedMediaPolicySource } from "./media-policy.mjs";
 
 const PATCH_MARKER = "/* qqbot-history-media-v1 */";
 const MEDIA_CAPABILITY_MARKER = "/* qqbot-media-capabilities-v1 */";
@@ -63,7 +64,7 @@ function normalizeLegacyMarkers(source) {
 }
 
 function upgradeMediaCapabilityGate(source) {
-  const helper = `function readMediaCapabilities() {
+  const legacyHelper = `function readMediaCapabilities() {
 	try {
 		const value = JSON.parse(fs$1.readFileSync("${MEDIA_CAPABILITIES_PATH}", "utf8"));
 		return { image: value.image === true, video: value.video === true };
@@ -96,16 +97,14 @@ ${MEDIA_CAPABILITY_MARKER}
 
 ${VIDEO_MENTION_GATE_MARKER}
 `;
+  const helper = `${buildInjectedMediaPolicySource(MEDIA_CAPABILITIES_PATH)}\n${MEDIA_CAPABILITY_MARKER}\n${VIDEO_MENTION_GATE_MARKER}\n`;
   const existingVideoGateCall = /\n\t\/\* qqbot-video-mention-gate-v[12] \*\/\n\tprocessed = filterVideoByMention\(\n\t\tprocessed,\n\t\t!event\?\.groupOpenid \|\| groupInfo\?\.gate\?\.effectiveWasMentioned === true,\n\t\);\n/g;
   source = source.replace(existingVideoGateCall, "\n");
   if (!source.includes(MEDIA_CAPABILITY_MARKER)) {
     source = source.replace(`${PATCH_MARKER}\n`, `${helper}${PATCH_MARKER}\n`);
   }
   if (!source.includes("function filterVideoByMention(processed, allowVideo)")) {
-    source = source.replace(
-      `${MEDIA_CAPABILITY_MARKER}\n`,
-      `${videoHelper}${MEDIA_CAPABILITY_MARKER}\n`,
-    );
+    source = source.replace(`${MEDIA_CAPABILITY_MARKER}\n`, `${helper}`);
   } else {
     source = source.replaceAll(LEGACY_VIDEO_MENTION_GATE_MARKER, VIDEO_MENTION_GATE_MARKER);
   }

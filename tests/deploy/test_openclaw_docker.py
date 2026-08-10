@@ -36,12 +36,15 @@ def test_compose_uses_pinned_image_and_loopback_port():
     assert "openclaw-state:/home/node/.openclaw/state" in common["volumes"]
     assert gateway["depends_on"]["qq-diagnostic-filter-init"]["condition"] == "service_completed_successfully"
     assert "qqbot-history-media-patch.mjs" in " ".join(plugin_init["volumes"])
+    assert "media-policy.mjs" in " ".join(plugin_init["volumes"])
+    assert "diagnostic-policy.mjs" in " ".join(plugin_init["volumes"])
     assert "web-search-patch.mjs" in " ".join(plugin_init["volumes"])
     assert "context-recovery.mjs" in " ".join(plugin_init["volumes"])
+    assert "context-recovery-core.mjs" in " ".join(plugin_init["volumes"])
     assert "openclaw-logs:/tmp/openclaw" in " ".join(plugin_init["volumes"])
-    assert plugin_init["command"] == [
-        "mkdir -p /tmp/openclaw && chown ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /tmp/openclaw && cp /seed/qq-diagnostic-filter.mjs /opt/openclaw-local/qq-diagnostic-filter.mjs && cp /seed/openclaw.plugin.json /opt/openclaw-local/openclaw.plugin.json && cp /seed/qqbot-history-media-patch.mjs /opt/openclaw-local/qqbot-history-media-patch.mjs && cp /seed/web-search-patch.mjs /opt/openclaw-local/web-search-patch.mjs && cp /seed/context-recovery.mjs /opt/openclaw-local/context-recovery.mjs && chmod 0644 /opt/openclaw-local/qq-diagnostic-filter.mjs /opt/openclaw-local/openclaw.plugin.json /opt/openclaw-local/qqbot-history-media-patch.mjs /opt/openclaw-local/web-search-patch.mjs /opt/openclaw-local/context-recovery.mjs"
-    ]
+    init_command = plugin_init["command"][0]
+    for name in ("media-policy.mjs", "diagnostic-policy.mjs", "context-recovery-core.mjs"):
+        assert f"cp /seed/{name} /opt/openclaw-local/{name}" in init_command
     assert gateway["command"][:2] == ["sh", "-c"]
     assert "qqbot-history-media-patch.mjs" in gateway["command"][2]
     assert "web-search-patch.mjs" in gateway["command"][2]
@@ -122,10 +125,12 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
 
     diagnostic_filter = (DEPLOY_DIR / "qq-diagnostic-filter.mjs").read_text(encoding="utf-8")
     assert '"reply_payload_sending"' in diagnostic_filter
-    assert "payload.isError" in diagnostic_filter
-    assert "payload.isFallbackNotice" in diagnostic_filter
-    assert "isProcessPreamble" in diagnostic_filter
-    assert "qqbot_process_preamble_suppressed" in diagnostic_filter
+    assert "shouldSuppressQQPayload" in diagnostic_filter
+    policy = (DEPLOY_DIR / "diagnostic-policy.mjs").read_text(encoding="utf-8")
+    assert "payload.isError" in policy
+    assert "payload.isFallbackNotice" in policy
+    assert "isProcessPreamble" in policy
+    assert "qqbot_process_preamble_suppressed" in policy
 
     history_media_patch = (DEPLOY_DIR / "qqbot-history-media-patch.mjs").read_text(encoding="utf-8")
     assert "qqbot-history-media-v1" in history_media_patch
@@ -141,9 +146,10 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     assert "effectiveWasMentioned === true" in history_media_patch
 
     context_recovery = (DEPLOY_DIR / "context-recovery.mjs").read_text(encoding="utf-8")
+    context_recovery_core = (DEPLOY_DIR / "context-recovery-core.mjs").read_text(encoding="utf-8")
     assert "sessions.reset" in context_recovery
-    assert "context overflow detected" in context_recovery
-    assert "stalled_agent_run" in context_recovery
+    assert "context overflow detected" in context_recovery_core
+    assert "stalled_agent_run" in context_recovery_core
     assert "OPENCLAW_GATEWAY_URL" in context_recovery
     assert "OPENCLAW_ALLOW_INSECURE_PRIVATE_WS" in context_recovery
 
@@ -205,7 +211,11 @@ def test_setup_invokes_openclaw_only_through_docker_compose():
 def test_setup_requires_fallback_key_and_migrates_legacy_media_config():
     setup = (DEPLOY_DIR / "setup.sh").read_text()
 
-    assert "SENSENOVA_API_KEY DEEPSEEK_API_KEY" in setup
+    assert "validate-env.sh" in setup
+    assert "--migrate --generate-token" in setup
+    assert "--declaration-key" in setup
+    assert "qqbot-proactive-review-night" in setup
+    assert "environment-contract.txt" in (DEPLOY_DIR / "validate-env.sh").read_text()
     assert "DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in (DEPLOY_DIR / ".env.example").read_text()
     assert "mage-video-cli\\.mjs|nvidia-image-cli\\.mjs" in setup
     assert "Migrating retired video/image CLI routes" in setup
@@ -215,7 +225,6 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     launcher = (DEPLOY_DIR / "Start-OpenClawDocker.ps1").read_text()
     watcher = (DEPLOY_DIR / "Watch-OpenClawModel.ps1").read_text()
     overlay = (DEPLOY_DIR / "docker-compose.local.yml").read_text()
-    bridge_cli = (DEPLOY_DIR / "video-bridge" / "mage-video-cli.mjs").read_text()
 
     assert "DEEPSEEK_API_KEY" in launcher
     assert "deepseek-api-key.dpapi" not in launcher
@@ -226,7 +235,6 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert "*/10 8-23,0-1 * * *" in launcher
     assert "*/30 2-7 * * *" in launcher
     assert "Asia/Shanghai" in launcher
-    assert "{{MediaPath}}" in bridge_cli or "--media-path" in bridge_cli
     assert "environment:" in overlay
     assert "DEEPSEEK_API_KEY" in overlay
     assert "api.deepseek.com" not in overlay
@@ -237,6 +245,9 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert (DEPLOY_DIR / "Start-OpenClawVision.ps1").exists()
     assert (DEPLOY_DIR / "Stop-OpenClawVision.ps1").exists()
     assert (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").exists()
+    assert (DEPLOY_DIR / "Test-OpenClawEnvironment.ps1").exists()
+    assert "Test-OpenClawEnvironment.ps1" in launcher
+    assert "QQBOT_HOME_CHANNEL" in launcher
 
     capability_script = (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").read_text(encoding="utf-8")
     assert "media-capabilities.json" in capability_script
@@ -261,32 +272,16 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert "--force-recreate" in vision_launcher
 
 
-def test_heavy_media_builds_share_common_runtime_layer():
-    dockerfile = (DEPLOY_DIR / "vision-runtime" / "Dockerfile").read_text(encoding="utf-8")
-    video_compose = yaml.safe_load((DEPLOY_DIR / "docker-compose.video.yml").read_text())
-
-    assert "FROM ${BASE_IMAGE} AS common" in dockerfile
-    assert "FROM common AS video" in dockerfile
-    assert "FROM common AS image" in dockerfile
-    assert dockerfile.count("accelerate") == 1
-    assert dockerfile.count("fastapi") == 1
-    assert dockerfile.count("opencv-python-headless") == 1
-    assert video_compose["services"]["video-bridge"]["build"]["target"] == "video"
-    assert video_compose["services"]["image-fusion"]["build"]["target"] == "image"
-    assert "qwen-vision" not in video_compose["services"]
-
-
-def test_media_workers_require_explicit_cuda_device_mapping():
-    for relative_path in ("video-bridge/server.py", "image-fusion/server.py"):
-        source = (DEPLOY_DIR / relative_path).read_text(encoding="utf-8")
-        assert 'device_map={"": MODEL_DEVICE}' in source
-        assert "device_map=\"auto\"" not in source
-        assert "assert_model_on_cuda" in source
-
-    video_source = (DEPLOY_DIR / "video-bridge/server.py").read_text(encoding="utf-8")
-    assert "def compress_video" in video_source
-    assert '"libx264"' in video_source
-    assert "compressedBytes" in video_source
+def test_retired_visual_code_is_archived_and_not_active():
+    archive = ROOT / "docs" / "retired-visual"
+    assert (archive / "README.md").exists()
+    assert (archive / "docker-compose.video.yml").exists()
+    assert (archive / "vision-runtime" / "Dockerfile").exists()
+    assert not (DEPLOY_DIR / "docker-compose.video.yml").exists()
+    assert "video-bridge" not in (DEPLOY_DIR / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "image-fusion" not in (DEPLOY_DIR / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "microsoft/Mage-VL" not in json.dumps(load_openclaw_config())
+    assert "nvidia/LocateAnything-3B" not in json.dumps(load_openclaw_config())
 
 
 def test_windows_batch_launcher_points_to_openclaw_startup_script():

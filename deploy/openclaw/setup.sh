@@ -79,18 +79,8 @@ replace_env_value QWEN_BASE_URL "http://qwen-vision:11434"
 replace_env_value QWEN_MODEL_CACHE_VOLUME "qqshitbot-openclaw_qwen-vision-model-cache"
 replace_env_value QWEN_MODEL_CACHE_EXTERNAL "false"
 
-gateway_token=$(env_value OPENCLAW_GATEWAY_TOKEN)
-if [ -z "$gateway_token" ] || [ "$gateway_token" = "replace-with-a-random-token" ]; then
-    if ! command -v openssl >/dev/null 2>&1; then
-        echo "Set OPENCLAW_GATEWAY_TOKEN in $ENV_FILE (openssl is unavailable)." >&2
-        exit 1
-    fi
-    replace_env_value OPENCLAW_GATEWAY_TOKEN "$(openssl rand -hex 32)"
-fi
-
-for key in QQBOT_APP_ID QQBOT_CLIENT_SECRET QQBOT_ALLOWED_USER_OPENID QQBOT_ALLOWED_MEMBER_OPENID QQBOT_HOME_CHANNEL SENSENOVA_API_KEY DEEPSEEK_API_KEY; do
-    require_configured "$key"
-done
+# Unix and Windows use the same contract, alias migration, and redacted checks.
+sh "$SCRIPT_DIR/validate-env.sh" --migrate --generate-token
 
 if ! docker info >/dev/null 2>&1; then
     echo "The Docker daemon is not running." >&2
@@ -145,5 +135,35 @@ if ! printf '%s\n' "$qwen_model_list" | grep -q '^qwen2\.5vl:7b[[:space:]]'; the
 fi
 compose up -d openclaw-gateway context-recovery
 compose ps openclaw-gateway context-recovery
+
+register_proactive_review() {
+    job_name=$1
+    cron_expression=$2
+    description=$3
+    prompt=$(cat "$SCRIPT_DIR/proactive-review-prompt.txt")
+    home_channel=$(env_value QQBOT_HOME_CHANNEL)
+    timezone=$(env_value OPENCLAW_TZ)
+    session_key="agent:main:qqbot:group:$home_channel"
+    target="qqbot:group:$home_channel"
+    for attempt in 1 2 3 4; do
+        if compose exec -T openclaw-gateway node dist/index.js cron add "$job_name" \
+            --cron "$cron_expression" --tz "$timezone" --exact --message "$prompt" \
+            --session-key "$session_key" --announce --channel qqbot --to "$target" \
+            --best-effort-deliver --description "$description" \
+            --declaration-key "$job_name" --timeout-seconds 180; then
+            return 0
+        fi
+        sleep 5
+    done
+    echo "Failed to register declarative proactive review job: $job_name" >&2
+    return 1
+}
+
+register_proactive_review \
+    qqbot-proactive-review '*/10 8-23,0-1 * * *' \
+    'Review collected QQ group context every 10 minutes during daytime.'
+register_proactive_review \
+    qqbot-proactive-review-night '*/30 2-7 * * *' \
+    'Review collected QQ group context every 30 minutes overnight.'
 
 printf '\nOpenClaw QQ Bot is running at http://127.0.0.1:%s\n' "$(env_value OPENCLAW_GATEWAY_PORT)"
