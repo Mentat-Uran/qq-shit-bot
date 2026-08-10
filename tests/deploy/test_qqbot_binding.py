@@ -16,6 +16,8 @@ def test_qr_binding_uses_the_official_plugin_only_as_a_temporary_helper():
     assert "Copy-Item -LiteralPath $sourceConfig -Destination $runtimeConfigPath -Force" in text
     assert "QQBOT_ALLOWED_USER_OPENID" in text
     assert "$ForceQr" in text
+    needs_qr_block = text.split("$needsQr =", 1)[1].split("$qrCredentials", 1)[0]
+    assert "QQBOT_ALLOWED_USER_OPENID" not in needs_qr_block
 
 
 def test_qr_binding_does_not_print_secret_values():

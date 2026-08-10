@@ -37,6 +37,18 @@ LOG_SOURCE = "docker compose logs --tail 80"
 STATE_DB_PATH = "deploy/openclaw/runtime/config/state/openclaw.sqlite"
 SESSION_DIR = "deploy/openclaw/runtime/config/agents/main/sessions"
 MAX_SESSION_ROWS = 24
+MODEL_ROUTE_MAX_AGE_SECONDS = 15 * 60
+QUEUE_TABLES = ("channel_ingress_events", "delivery_queue_entries")
+ACTIVE_QUEUE_STATUSES = {"queued", "pending", "processing", "claimed", "sending", "in_flight", "retrying", "waiting", "ready"}
+TERMINAL_QUEUE_STATUSES = {"completed", "done", "sent", "failed", "cancelled", "expired", "dropped"}
+QUEUE_ADAPTER_SCRIPT = (
+    "const { DatabaseSync } = require('node:sqlite');"
+    "const db = new DatabaseSync('/home/node/.openclaw/state/openclaw.sqlite', { readOnly: true });"
+    "const tables = ['channel_ingress_events', 'delivery_queue_entries'];"
+    "const result = {};"
+    "for (const table of tables) result[table] = db.prepare(`SELECT status, COUNT(*) AS count FROM ${table} GROUP BY status`).all();"
+    "process.stdout.write(JSON.stringify(result));"
+)
 
 
 @dataclass(frozen=True)
@@ -366,9 +378,9 @@ class RuntimeConfigCollector:
 class RuntimeStateCollector:
     """Read only queue/session metadata without returning payloads or identities."""
 
-    _queue_tables = ("channel_ingress_events", "delivery_queue_entries")
-    _active_queue_statuses = {"queued", "pending", "processing", "claimed", "sending", "in_flight", "retrying", "waiting", "ready"}
-    _terminal_queue_statuses = {"completed", "done", "sent", "failed", "cancelled", "expired", "dropped"}
+    _queue_tables = QUEUE_TABLES
+    _active_queue_statuses = ACTIVE_QUEUE_STATUSES
+    _terminal_queue_statuses = TERMINAL_QUEUE_STATUSES
 
     def __init__(self, state_db: Path, session_dir: Path):
         self.state_db = state_db
@@ -397,6 +409,13 @@ class RuntimeStateCollector:
         digest = hashlib.sha256(path.stem.encode("utf-8", errors="ignore")).hexdigest()[:10]
         return f"session-{digest}"
 
+    def _queue_from_counts(self, counts: dict[str, int], source: str, observed_at: str) -> dict[str, Any]:
+        unknown_statuses = set(counts) - self._active_queue_statuses - self._terminal_queue_statuses
+        if unknown_statuses:
+            return unknown(source, "队列存在未识别状态，未猜测当前长度", observed_at)
+        active = sum(counts.get(status, 0) for status in self._active_queue_statuses)
+        return evidence("available", source, "direct", observed_at, value=active, ingressCount=sum(counts.get(status, 0) for status in self._active_queue_statuses), statusCounts=counts)
+
     def _queue(self, observed_at: str) -> dict[str, Any]:
         source = "OpenClaw state SQLite queue tables"
         try:
@@ -410,11 +429,7 @@ class RuntimeStateCollector:
                     for status, count in connection.execute(f"SELECT status, COUNT(*) FROM {table} GROUP BY status"):
                         status_name = str(status or "").lower()
                         counts[status_name] = counts.get(status_name, 0) + int(count)
-                unknown_statuses = set(counts) - self._active_queue_statuses - self._terminal_queue_statuses
-                if unknown_statuses:
-                    return unknown(source, "队列存在未识别状态，未猜测当前长度", observed_at)
-                active = sum(counts.get(status, 0) for status in self._active_queue_statuses)
-                return evidence("available", source, "direct", observed_at, value=active, ingressCount=sum(counts.get(status, 0) for status in self._active_queue_statuses), statusCounts=counts)
+                return self._queue_from_counts(counts, source, observed_at)
             finally:
                 connection.close()
         except (OSError, sqlite3.Error):
@@ -489,10 +504,11 @@ class RuntimeStateCollector:
             context = unknown(source, "最近请求 Token 未采集", observed_at)
         return summary, rows, context
 
-    def collect(self, idle_minutes: int | None = None) -> dict[str, Any]:
+    def collect(self, idle_minutes: int | None = None, queue_override: dict[str, Any] | None = None) -> dict[str, Any]:
         observed_at = utc_now()
         summary, sessions, context = self._sessions(observed_at, idle_minutes)
-        return {"queueLength": self._queue(observed_at), "summary": summary, "sessions": sessions, "contextTokens": context}
+        queue = queue_override if queue_override and queue_override.get("status") == "available" else self._queue(observed_at)
+        return {"queueLength": queue, "summary": summary, "sessions": sessions, "contextTokens": context}
 
 
 class HostCollector:
@@ -630,6 +646,16 @@ class ModelRouteCollector:
             "statusCode": payload.get("statusCode") if isinstance(payload.get("statusCode"), int) else None,
             "lastProbeAt": str(payload.get("lastProbeAt") or "unknown")[:40],
         }
+        last_probe = payload.get("lastProbeAt")
+        try:
+            probe_at = datetime.fromisoformat(str(last_probe).replace("Z", "+00:00"))
+            if probe_at.tzinfo is None:
+                probe_at = probe_at.replace(tzinfo=timezone.utc)
+            age_seconds = (datetime.now(timezone.utc) - probe_at.astimezone(timezone.utc)).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            age_seconds = float("inf")
+        if age_seconds < 0 or age_seconds > MODEL_ROUTE_MAX_AGE_SECONDS:
+            return self._configured_route(observed_at)
         return evidence("available", "deploy/openclaw/runtime/model-route-state.json", "direct", observed_at, **safe)
 
 
@@ -665,10 +691,44 @@ class DockerCollector:
         return evidence("available", "docker compose ps --all", "direct", observed_at, count=len(rows)), rows
 
     def _stats(self, services: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-        if not any(item.get("state") == "running" for item in services):
+        names = [str(item.get("name")) for item in services if item.get("state") == "running" and item.get("name")]
+        if not names:
             return {}
-        result = self.runner.run(["docker", "stats", "--no-stream", "--format", "{{json .}}"], self.root, timeout=4)
+        result = self.runner.run(["docker", "stats", "--no-stream", "--format", "{{json .}}", *names], self.root, timeout=4)
         return parse_docker_stats(result.stdout) if result.code == 0 else {}
+
+    def _queue_state(self, gateway_running: bool) -> dict[str, Any]:
+        source = "docker compose exec openclaw-gateway fixed queue adapter"
+        if not gateway_running:
+            return unknown(source, "Gateway 未运行，队列状态未采集", utc_now())
+        result = self.runner.run(
+            self.compose + ["exec", "-T", "openclaw-gateway", "node", "-e", QUEUE_ADAPTER_SCRIPT],
+            self.compose_dir,
+            timeout=4,
+        )
+        if result.code != 0:
+            return unknown(source, "容器内队列适配器不可用", utc_now())
+        try:
+            payload = json.loads(result.stdout)
+            counts: dict[str, int] = {}
+            for rows in payload.values():
+                if not isinstance(rows, list):
+                    return unknown(source, "容器内队列适配器返回格式不可用", utc_now())
+                for row in rows:
+                    if not isinstance(row, dict):
+                        return unknown(source, "容器内队列适配器返回格式不可用", utc_now())
+                    status = str(row.get("status") or "").lower()
+                    count = row.get("count")
+                    if not status or not isinstance(count, int):
+                        return unknown(source, "容器内队列适配器返回格式不可用", utc_now())
+                    counts[status] = counts.get(status, 0) + count
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+            return unknown(source, "容器内队列适配器返回格式不可用", utc_now())
+        unknown_statuses = set(counts) - ACTIVE_QUEUE_STATUSES - TERMINAL_QUEUE_STATUSES
+        if unknown_statuses:
+            return unknown(source, "队列存在未识别状态，未猜测当前长度", utc_now())
+        active = sum(counts.get(status, 0) for status in ACTIVE_QUEUE_STATUSES)
+        return evidence("available", source, "direct", utc_now(), value=active, ingressCount=active, statusCounts=counts)
 
     def _gateway_port(self, docker_status: dict[str, Any]) -> int:
         result = self.runner.run(self.compose + ["port", "openclaw-gateway", "18789"], self.compose_dir, timeout=3)
@@ -776,6 +836,7 @@ class DockerCollector:
             "logRecords": logs,
             "websocket": websocket,
             "events": events,
+            "queueState": self._queue_state(by_service.get("openclaw-gateway", {}).get("state") == "running"),
         }
 
 
@@ -816,9 +877,17 @@ class SnapshotBuilder:
     def _overall(services: list[dict[str, Any]], gateway: dict[str, Any], docker_status: dict[str, Any]) -> tuple[str, str]:
         if docker_status.get("status") in {"unavailable", "unknown"}:
             return "degraded", "Docker 采集不可用，服务运行态未能确认"
-        if gateway.get("status") == "healthy" and all(item.get("status") == "running" for item in services):
+        service_health_ok = all(
+            item.get("status") == "running" and item.get("health") in {"healthy", "not_configured"}
+            for item in services
+        )
+        if gateway.get("status") == "healthy" and service_health_ok:
             return "operational", "本机服务与 Gateway healthz 已直接观察"
-        if any(item.get("status") in {"stopped", "exited", "dead", "unhealthy"} for item in services) or gateway.get("status") == "degraded":
+        if any(
+            item.get("status") in {"stopped", "exited", "dead", "unhealthy"}
+            or item.get("health") == "unhealthy"
+            for item in services
+        ) or gateway.get("status") == "degraded":
             return "degraded", "至少一个服务或 healthz 处于异常/停止状态"
         return "unknown", "运行态证据不足"
 
@@ -829,7 +898,10 @@ class SnapshotBuilder:
         host = self.host.collect()
         route = self.route.collect()
         configuration = self.config.collect()
-        runtime_state = self.state.collect(configuration.get("sessionIdleMinutes") if configuration.get("status") == "available" else None)
+        runtime_state = self.state.collect(
+            configuration.get("sessionIdleMinutes") if configuration.get("status") == "available" else None,
+            queue_override=runtime.get("queueState"),
+        )
         overall, overall_detail = self._overall(runtime["services"], gateway, runtime["status"])
         errors = [record for record in runtime["logRecords"] if record["level"] in {"error", "warn"}][-12:]
         events = runtime["events"]

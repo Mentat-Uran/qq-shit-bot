@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ops_console.collectors import CommandResult, DockerCollector, ModelRouteCollector, RuntimeStateCollector, SnapshotBuilder, parse_compose_rows, parse_docker_stats, parse_runtime_events
@@ -49,6 +50,17 @@ class FakeRunner:
         return CommandResult(0, "")
 
 
+class QueueAdapterRunner(FakeRunner):
+    def run(self, args, cwd, timeout=3.0):
+        if "node" in args and "-e" in args:
+            self.calls.append((args, cwd, timeout))
+            return CommandResult(0, json.dumps({
+                "channel_ingress_events": [{"status": "pending", "count": 2}],
+                "delivery_queue_entries": [{"status": "sent", "count": 1}],
+            }))
+        return super().run(args, cwd, timeout)
+
+
 def test_compose_rows_are_limited_to_supported_services():
     rows = parse_compose_rows(json.dumps({"Service": "other", "State": "running"}) + "\n" + json.dumps({"Service": "qwen-vision", "State": "running"}))
 
@@ -61,6 +73,27 @@ def test_docker_stats_are_system_ram_not_vram():
     assert stats["container"]["memoryBytes"] == 512 * 1024 * 1024
     assert stats["container"]["memoryKind"] == "system_ram"
     assert "not GPU VRAM" in stats["container"]["source"]
+
+
+def test_docker_stats_are_scoped_to_running_compose_containers():
+    runner = FakeRunner()
+    collector = DockerCollector(ROOT, runner)
+
+    collector._stats([
+        {"name": "qq-shit-bot-openclaw-gateway-1", "state": "running"},
+        {"name": "qq-shit-bot-qwen-vision-1", "state": "running"},
+        {"name": "qq-shit-bot-context-recovery-1", "state": "exited"},
+    ])
+
+    stats_call = next(args for args, _, _ in runner.calls if args[:2] == ["docker", "stats"])
+    assert stats_call[-2:] == ["qq-shit-bot-openclaw-gateway-1", "qq-shit-bot-qwen-vision-1"]
+
+
+def test_queue_state_uses_fixed_scope_container_adapter():
+    runtime = DockerCollector(ROOT, QueueAdapterRunner()).collect()
+
+    assert runtime["queueState"]["status"] == "available"
+    assert runtime["queueState"]["value"] == 2
 
 
 def test_healthy_snapshot_separates_gpu_vram_and_ollama_model():
@@ -128,6 +161,15 @@ def test_runtime_state_reads_queue_and_recent_input_tokens_without_payloads(tmp_
     assert "payload" not in json.dumps(state)
 
 
+def test_runtime_state_accepts_only_safe_container_queue_metadata(tmp_path):
+    state = RuntimeStateCollector(tmp_path / "hidden-state.sqlite", tmp_path / "missing-sessions").collect(
+        queue_override={"status": "available", "value": 2, "source": "fixed adapter"}
+    )
+
+    assert state["queueLength"]["value"] == 2
+    assert "payload" not in json.dumps(state)
+
+
 def test_model_route_falls_back_to_safe_openclaw_configuration(tmp_path):
     watcher = tmp_path / "missing-model-route-state.json"
     config = tmp_path / "openclaw.json"
@@ -145,6 +187,40 @@ def test_model_route_falls_back_to_safe_openclaw_configuration(tmp_path):
     assert result["fallback"] == "deepseek/deepseek-chat"
     assert result["lastProbeAt"] is None
     assert "must-not-appear" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_model_route_ignores_stale_watcher_state(tmp_path):
+    config = tmp_path / "openclaw.json"
+    config.write_text(json.dumps({
+        "agents": {"defaults": {"model": {"primary": "configured-primary", "fallbacks": ["configured-fallback"]}}},
+    }), encoding="utf-8")
+    watcher = tmp_path / "model-route-state.json"
+    watcher.write_text(json.dumps({
+        "primary": "stale-primary",
+        "fallback": "stale-fallback",
+        "route": "primary-configured",
+        "primaryAvailable": True,
+        "statusCode": 200,
+        "lastProbeAt": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+    }), encoding="utf-8")
+
+    result = ModelRouteCollector(watcher, config).collect()
+
+    assert result["source"] == "deploy/openclaw/openclaw.json"
+    assert result["primary"] == "configured-primary"
+    assert result["lastProbeAt"] is None
+
+
+def test_unhealthy_service_cannot_make_dashboard_operational():
+    services = [
+        {"status": "running", "health": "healthy"},
+        {"status": "running", "health": "not_configured"},
+        {"status": "running", "health": "unhealthy"},
+    ]
+
+    status, _ = SnapshotBuilder._overall(services, {"status": "healthy"}, {"status": "available"})
+
+    assert status == "degraded"
 
 
 def test_docker_failure_is_unknown_or_degraded_and_never_zero():
