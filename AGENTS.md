@@ -3,9 +3,19 @@
 本仓库是一个 QQ 群聊机器人项目。当前唯一运行形态是 **OpenClaw + Docker**:OpenClaw `2026.7.1` 与官方 `@openclaw/qqbot` 插件全部跑在 Docker 里,部署入口是 `deploy/openclaw/`,详细说明见 `deploy/openclaw/README.md`。
 
 - 模型路由:商汤 SenseNova `deepseek-v4-flash` 为主,官方 DeepSeek `deepseek-chat` 兜底;密钥只存在于 `deploy/openclaw/.env`(已被 gitignore),永不提交。
-- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是唯一启用的图像识别路径;Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合已停用并归档到 `docs/retired-visual/`,不再构建或启动。
+- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是唯一启用的图像识别路径;Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合方案已删除,不再构建或启动。
 - 上下文管理:群历史 32 条、消息队列收集式汇聚(上限 32 条)、120 分钟空闲重置、`contextTokens` 131072、compaction safeguard 模式(压缩后保留 20000 token 与最近 8 轮),`context-recovery` 守护进程在上下文溢出或卡死时重置对应群会话。
 - 仓库只保留 OpenClaw Docker 运行链路与 QQ 机器人相关文档;旧的本地运行代码和部署入口已移除,不要在仓库外重新接入旧方案。
+- Windows 正式启动入口是 `scripts/windows/Start-OpenClawQQBot.bat`,它直接调用 Docker Compose;本机只读运维面板入口是 `scripts/windows/Start-QQBotConsole.bat`,默认监听 `127.0.0.1:18888`。
+- Mac 迁移和 SenseNova 局域网运行面板仍处于需求与实现阶段,以 `MAC_MIGRATION_SENSENOVA_LAN_REQUIREMENTS.md` 为约束;不能把需求文档、静态测试或本机健康检查当成 Mac 部署或真实 QQ 收发已完成的证据。
+- 凭据只允许来自被忽略的 `deploy/openclaw/.env`;不得提交、打印、复制或在面板/API 中返回 `.env`、API key、QQ Secret、会话正文、完整群号或私聊内容。
+
+## Development and delivery boundaries
+
+- 本地验证优先于云端检查:至少运行相关 `pytest`,Compose 配置校验、Windows/Unix 启动器静态检查和 `python scripts/security_audit.py --json`;缺少 Docker、模型或凭据时，记录为未执行，不伪造运行证据。
+- GitHub PR 只提交可审查的源码、文档和测试;运行时目录、日志、缓存、模型权重和 `.env` 不得进入提交。提交前检查 `git status --short`、差异和敏感信息扫描。
+- PR 检查通过只证明源码和 CI 路径通过;不证明外部 QQ 真实收发、Mac 局域网访问、第三方模型额度或生产运行状态。合并后的结果仍需分别报告本地、CI、在线服务和真实 QQ 交互证据。
+- 分支清理前先用 `git merge-base --is-ancestor <branch> main` 检查 ancestry,并确认远端分支已消失;不要因 squash merge 导致的非祖先关系直接误删未合并实验分支。
 
 下面全部规则是 QQ 群运行时行为规则(同时被复制进 OpenClaw workspace 作为运行时人格),任何时候都生效。
 

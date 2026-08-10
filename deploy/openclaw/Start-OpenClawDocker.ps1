@@ -72,7 +72,7 @@ function Set-RuntimeEnvironment {
         throw "OpenClaw environment file was not found: $envFile"
     }
 
-    foreach ($target in @('QQBOT_APP_ID', 'QQBOT_CLIENT_SECRET', 'QQBOT_ALLOWED_USER_OPENID', 'QQBOT_ALLOWED_MEMBER_OPENID', 'QQBOT_HOME_CHANNEL', 'SENSENOVA_API_KEY', 'DEEPSEEK_API_KEY')) {
+    foreach ($target in @('QQBOT_APP_ID', 'QQBOT_CLIENT_SECRET', 'SENSENOVA_API_KEY', 'DEEPSEEK_API_KEY')) {
         $value = Get-DotEnvValue -Path $envFile -Name $target
         if ([string]::IsNullOrWhiteSpace($value)) {
             throw "Required OpenClaw value is missing: $target"
@@ -119,6 +119,19 @@ function Invoke-Compose {
     }
 }
 
+function Test-DockerImageAvailable {
+    param([Parameter(Mandatory = $true)][string]$Image)
+
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & docker image inspect $Image *> $null
+        return ($LASTEXITCODE -eq 0)
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+}
+
 function Ensure-QwenService {
     if ($NoVision) {
         return
@@ -161,8 +174,9 @@ function Ensure-RuntimeFiles {
 
 function Ensure-ProactiveReview {
     $homeChannel = Get-DotEnvValue -Path $envFile -Name 'QQBOT_HOME_CHANNEL'
-    if ([string]::IsNullOrWhiteSpace($homeChannel)) {
-        throw 'QQBOT_HOME_CHANNEL is required for the group proactive review job.'
+    if ([string]::IsNullOrWhiteSpace($homeChannel) -or $homeChannel -like 'replace-with-*') {
+        Write-Host 'QQBOT_HOME_CHANNEL is not set; skipping the group proactive review job registration.'
+        return
     }
 
     $ready = $false
@@ -280,7 +294,18 @@ try {
     Invoke-Compose -Arguments @('config', '--quiet')
     $pullServices = @('openclaw-gateway', 'openclaw-cli')
     if (-not $NoVision) {
-        $pullServices += 'qwen-vision'
+        $qwenImage = $env:QWEN_IMAGE
+        if ([string]::IsNullOrWhiteSpace($qwenImage)) {
+            $qwenImage = Get-DotEnvValue -Path $envFile -Name 'QWEN_IMAGE'
+        }
+        if ([string]::IsNullOrWhiteSpace($qwenImage)) {
+            $qwenImage = 'ollama/ollama:0.32.5'
+        }
+        if (Test-DockerImageAvailable -Image $qwenImage) {
+            Write-Host "Using existing local Qwen image: $qwenImage"
+        } else {
+            $pullServices += 'qwen-vision'
+        }
     }
     Invoke-Compose -Arguments (@('pull') + $pullServices)
     Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'qq-diagnostic-filter-init')

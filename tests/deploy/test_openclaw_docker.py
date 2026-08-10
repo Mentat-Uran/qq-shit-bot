@@ -41,8 +41,10 @@ def test_compose_uses_pinned_image_and_loopback_port():
     assert "web-search-patch.mjs" in " ".join(plugin_init["volumes"])
     assert "context-recovery.mjs" in " ".join(plugin_init["volumes"])
     assert "context-recovery-core.mjs" in " ".join(plugin_init["volumes"])
+    assert "openclaw-state:/home/node/.openclaw/state" in " ".join(plugin_init["volumes"])
     assert "openclaw-logs:/tmp/openclaw" in " ".join(plugin_init["volumes"])
     init_command = plugin_init["command"][0]
+    assert "chown -R ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /home/node/.openclaw/state" in init_command
     for name in ("media-policy.mjs", "diagnostic-policy.mjs", "context-recovery-core.mjs"):
         assert f"cp /seed/{name} /opt/openclaw-local/{name}" in init_command
     assert gateway["command"][:2] == ["sh", "-c"]
@@ -70,13 +72,9 @@ def test_openclaw_config_enables_qq_plugin_and_uses_secret_refs():
         "/opt/openclaw-local/qq-diagnostic-filter.mjs"
     ]
     qqbot = config["channels"]["qqbot"]
-    assert qqbot["clientSecret"] == {
-        "source": "env",
-        "provider": "default",
-        "id": "QQBOT_CLIENT_SECRET",
-    }
-    assert qqbot["dmPolicy"] == "allowlist"
-    assert qqbot["groupPolicy"] == "allowlist"
+    assert qqbot["clientSecret"] == "${QQBOT_CLIENT_SECRET}"
+    assert qqbot["dmPolicy"] == "open"
+    assert qqbot["groupPolicy"] == "open"
     assert qqbot["groups"]["*"]["requireMention"] is True
     assert config["gateway"]["terminal"]["enabled"] is False
     assert config["tools"]["deny"] == ["exec", "read", "write"]
@@ -186,8 +184,8 @@ def test_env_example_pins_matching_openclaw_and_plugin_versions():
     assert "OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.7.1" in env_text
     assert "OPENCLAW_QQBOT_PLUGIN=@openclaw/qqbot@2026.7.1" in env_text
     assert "QQBOT_CLIENT_SECRET=replace-with-qq-app-secret" in env_text
-    assert "QQBOT_ALLOWED_USER_OPENID=replace-with-dm-user-openid" in env_text
-    assert "QQBOT_ALLOWED_MEMBER_OPENID=replace-with-group-member-openid" in env_text
+    assert "QQBOT_ALLOWED_USER_OPENID=" in env_text
+    assert "QQBOT_ALLOWED_MEMBER_OPENID=" in env_text
     assert "DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in env_text
     assert "microsoft/Mage-VL" not in env_text
     assert "nvidia/LocateAnything-3B" not in env_text
@@ -272,11 +270,9 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert "--force-recreate" in vision_launcher
 
 
-def test_retired_visual_code_is_archived_and_not_active():
+def test_retired_visual_code_is_removed_and_not_active():
     archive = ROOT / "docs" / "retired-visual"
-    assert (archive / "README.md").exists()
-    assert (archive / "docker-compose.video.yml").exists()
-    assert (archive / "vision-runtime" / "Dockerfile").exists()
+    assert not archive.exists()
     assert not (DEPLOY_DIR / "docker-compose.video.yml").exists()
     assert "video-bridge" not in (DEPLOY_DIR / "docker-compose.yml").read_text(encoding="utf-8")
     assert "image-fusion" not in (DEPLOY_DIR / "docker-compose.yml").read_text(encoding="utf-8")
@@ -287,7 +283,10 @@ def test_retired_visual_code_is_archived_and_not_active():
 def test_windows_batch_launcher_points_to_openclaw_startup_script():
     launcher = (ROOT / "scripts" / "windows" / "Start-OpenClawQQBot.bat").read_text(encoding="utf-8")
 
-    assert "deploy\\openclaw\\Start-OpenClawDocker.ps1" in launcher
+    assert "deploy\\openclaw\\Start-OpenClawDocker.ps1" not in launcher
     assert "%~dp0..\\.." in launcher
-    assert "ExecutionPolicy Bypass" in launcher
+    assert "docker compose" in launcher
+    assert "qwen2.5vl:7b" in launcher
+    assert "--pull never" in launcher
+    assert "powershell" not in launcher.lower()
     assert "sk-" not in launcher

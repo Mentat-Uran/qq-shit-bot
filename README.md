@@ -2,15 +2,15 @@
 
 这是一个 QQ 群聊机器人项目。当前唯一运行形态是 **OpenClaw + Docker**:OpenClaw `2026.7.1` 与官方 `@openclaw/qqbot` 插件全部运行在 Docker 中,宿主机不安装 OpenClaw、Node.js 或 QQ 插件。
 
-仓库只保留 OpenClaw Docker 运行链路与 QQ 机器人相关文档,不再维护本地运行代码或其他部署方案。
+仓库只保留 OpenClaw Docker 运行链路与 QQ 机器人相关文档,不再维护本地运行代码或其他部署方案。Mac 迁移、SenseNova 云视觉和局域网面板的约束见 [`MAC_MIGRATION_SENSENOVA_LAN_REQUIREMENTS.md`](MAC_MIGRATION_SENSENOVA_LAN_REQUIREMENTS.md)，目前不能视为已完成的 Mac 发布方案。
 
 ## 功能
 
-- QQ 私聊、群聊和明确 @ 触发;群聊未 @ 时按需自主判断是否参与。
+- QQ 私聊、群聊和明确 @ 触发;网关可接收群消息，但运行时人格仍要求群聊回复以当前 @ 或直接提问为触发条件。
 - 群聊上下文按群独立维护:32 条历史窗口、收集式消息队列(上限 32 条、超出自动摘要)、120 分钟空闲自动重置、compaction safeguard 模式;`context-recovery` 守护进程在上下文溢出或模型卡死时自动重置对应群会话。
 - 引用文本、图片、语音、文件和 QQ 小程序卡片摘要处理;小程序有标题时先搜索标题再解读,查不到时不编造正文。
-- 商汤 SenseNova `deepseek-v4-flash` 为主模型,官方 DeepSeek `deepseek-chat` 兜底;`Watch-OpenClawModel.ps1` 每五分钟探测商汤额度,将本地配置状态写入忽略的 runtime 文件,切换过程不向群里发送诊断信息。
-- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是唯一启用的视觉路径。Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合已移出部署路径并归档到 [`docs/retired-visual/`](docs/retired-visual/)，不再构建或启动。
+- 商汤 SenseNova `deepseek-v4-flash` 为主模型,官方 DeepSeek `deepseek-chat` 兜底;正常请求失败时由 OpenClaw 使用已配置的 fallback,不向群里发送 provider 诊断信息。
+- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是唯一启用的视觉路径。Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合方案已删除，不再构建或启动。
 - 关闭 OpenClaw 终端、Control UI 仅绑定 `127.0.0.1` 且需 token 认证;`exec`/`read`/`write` 工具全局禁用;QQ 私聊与群聊默认白名单。
 
 ## 快速开始(OpenClaw + Docker)
@@ -28,7 +28,7 @@ cp .env.example .env
 
 ### Windows
 
-直接运行 [`scripts/windows/Start-OpenClawQQBot.bat`](scripts/windows/Start-OpenClawQQBot.bat)(或桌面快捷方式)。它调用 `deploy/openclaw/Start-OpenClawDocker.ps1`,从 `deploy/openclaw/.env` 读取 QQ 与模型凭据;密钥永不写入仓库。
+直接运行 [`scripts/windows/Start-OpenClawQQBot.bat`](scripts/windows/Start-OpenClawQQBot.bat)(或桌面快捷方式)。它是纯 BAT 入口,直接调用 Docker Compose,从 `deploy/openclaw/.env` 读取 QQ 与模型凭据;密钥永不写入仓库。
 
 启动后打开 Control UI:`http://127.0.0.1:18789`,用 `.env` 里的 `OPENCLAW_GATEWAY_TOKEN` 认证。
 
@@ -48,17 +48,21 @@ python ../../scripts/openclaw_diagnostic.py --mode health --pretty
 
 - 主模型:SenseNova `deepseek-v4-flash`(`https://token.sensenova.cn/v1`)。
 - 兜底模型:官方 DeepSeek `deepseek-chat`(`https://api.deepseek.com/v1`),key 由 `DEEPSEEK_API_KEY` 环境变量提供。
-- `Watch-OpenClawModel.ps1` 每 5 分钟以 1-token 请求探测商汤;429/额度受限记入本地日志和脱敏 runtime 状态,请求失败时由 OpenClaw 使用已配置的 DeepSeek 兜底。错误、兜底与内部诊断 payload 会被本地 `reply_payload_sending` 钩子过滤,只留在网关日志里。
+- 请求失败时由 OpenClaw 使用已配置的 DeepSeek 兜底。错误、兜底与内部诊断 payload 会被本地 `reply_payload_sending` 钩子过滤,只留在网关日志里。
 
 ## 部署架构
 
 - `openclaw-gateway`:QQ WebSocket、会话/上下文、模型路由与最终中文回复,不加载重型视觉模型。
 - `qwen-vision`:私有 Ollama `Qwen2.5-VL 7B` 图片理解与 OCR,GPU 按需加载,`OLLAMA_KEEP_ALIVE=3m` 短保活。
-- `docs/retired-visual/`:已归档的重型视觉源码和历史 Compose，仅供审计和恢复参考；当前部署不读取、不构建、不启动。
+- 重型视觉源码和历史 Compose 已删除，当前部署只保留 Qwen2.5-VL 视觉路径。
 - `context-recovery`:监控网关日志,上下文溢出或会话卡死时自动重置对应群会话。
 - `qq-diagnostic-filter-init`:一次性初始化服务,把本地钩子与补丁脚本以 `0644` 种入命名卷。
 
 Qwen 不暴露宿主机端口;图片服务在 Compose 私有网络内访问 `qwen-vision:11434`。
+
+## 访问与证据边界
+
+默认配置允许 QQ 私聊和群 @ 进入 OpenClaw，但群聊仍由运行时规则控制是否回复；需要公开群部署时，应先在 `openclaw.json` 中改回 allowlist 并配置 OpenID。控制台、healthz、容器状态和 CI 只说明本机或源码路径状态，不能单独证明第三方模型可用、Mac 局域网访问或 QQ 已真实收发。
 
 ## 上下文管理
 
@@ -81,3 +85,11 @@ Qwen 不暴露宿主机端口;图片服务在 Compose 私有网络内访问 `qwe
 ## 许可证
 
 本项目使用 MIT License,详见 [`LICENSE`](LICENSE)。
+
+## 本机 QQ Bot Operations Console
+
+Phase 1 的只读本机控制台见 [docs/QQBOT_CONTROL_CONSOLE.md](docs/QQBOT_CONTROL_CONSOLE.md)，入口是 `scripts/windows/Start-QQBotConsole.bat`，默认只监听 `127.0.0.1:18888`。它与正式的 `Start-OpenClawQQBot.bat` 启动链路分离，不读取或返回 `.env` 密钥，也不把本机 healthz 或容器状态当成 QQ 外部收发证明。
+
+## 开发验证
+
+部署、Windows 启动器、控制台和安全审计的本地验证入口见 [`docs/DEVELOPMENT_VALIDATION.md`](docs/DEVELOPMENT_VALIDATION.md)。提交前不要加入 `.env`、`deploy/openclaw/runtime/`、日志、缓存、模型权重或会话正文；发布 PR 后仍需单独查看 GitHub Actions 检查结果。
