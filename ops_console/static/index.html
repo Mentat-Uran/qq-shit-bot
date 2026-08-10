@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>QQ 机器人本机监控台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="控制台导航">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div>
+          <p class="eyebrow">本机 / 只读</p>
+          <h1>QQ BOT<br><em>OPS</em></h1>
+        </div>
+      </div>
+      <div class="sidebar-rule"></div>
+      <p class="nav-label">观察面板</p>
+      <nav class="nav-list">
+        <button class="nav-item is-active" data-section="dashboard" aria-current="page"><span class="nav-index">01</span><span>总览</span></button>
+        <button class="nav-item" data-section="runtime"><span class="nav-index">02</span><span>运行与资源</span></button>
+        <button class="nav-item" data-section="activity"><span class="nav-index">03</span><span>QQ 活动</span></button>
+        <button class="nav-item" data-section="sessions"><span class="nav-index">04</span><span>会话与上下文</span></button>
+        <button class="nav-item" data-section="logs"><span class="nav-index">05</span><span>日志与诊断</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="local-badge"><span class="pulse-dot"></span><span>仅本机访问</span></div>
+        <p>浏览器只访问本机 REST API<br>不接触 Docker socket</p>
+      </div>
+    </aside>
+
+    <main class="main-shell" id="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="section-kicker">运行面板 / 01</p>
+          <h2 id="section-title">总览</h2>
+        </div>
+        <div class="top-actions">
+          <span class="last-refresh" id="last-refresh">正在刷新…</span>
+          <button class="button button-theme" id="theme-toggle" type="button" aria-label="切换到浅色模式" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☼</span><span id="theme-toggle-label">浅色模式</span></button>
+          <button class="button button-primary" id="refresh-button" type="button"><span class="button-glyph" aria-hidden="true">↻</span> 刷新采集</button>
+        </div>
+      </header>
+
+      <div class="content-scroll">
+        <div class="page-notice" id="page-notice" role="status" aria-live="polite">
+          <span class="notice-icon">!</span>
+          <span>本机证据面：容器、healthz、GPU、模型和 QQ 实际收发分别观察；本页面不证明外部消息已送达。</span>
+        </div>
+
+        <section class="page-section is-visible" data-page="dashboard">
+          <div class="hero-row">
+            <div class="hero-copy">
+              <p class="eyebrow accent-text">系统状态 / 最近观测</p>
+              <div class="hero-status-line"><h3 id="overall-status">降级</h3><span class="status-stamp" id="overall-stamp">等待采集</span></div>
+              <p class="hero-detail" id="overall-detail">正在读取本机运行证据…</p>
+            </div>
+            <div class="hero-signal" aria-hidden="true"><span class="signal-line"></span><span class="signal-line signal-line-2"></span><span class="signal-pin"></span><span class="signal-label">本机观测</span></div>
+          </div>
+
+          <div class="service-grid" id="service-cards"></div>
+
+          <div class="dashboard-grid">
+            <article class="panel resource-panel">
+              <div class="panel-heading"><div><p class="eyebrow">资源分层</p><h3>占用分层</h3></div><span class="panel-tag">RAM ≠ VRAM</span></div>
+              <div class="resource-list" id="resource-list"></div>
+              <p class="panel-footnote">Docker MEM USAGE 是系统 RAM；GPU 显存只认 nvidia-smi 证据。</p>
+            </article>
+            <article class="panel route-panel">
+              <div class="panel-heading"><div><p class="eyebrow">模型路由</p><h3>路由信号</h3></div><span class="panel-tag" id="route-chip">未知</span></div>
+              <div class="route-main"><span class="route-label">主模型</span><strong id="route-primary">未采集</strong></div>
+              <div class="route-arrow">→</div>
+              <div class="route-main fallback"><span class="route-label">备用模型</span><strong id="route-fallback">未采集</strong></div>
+              <div class="route-meta" id="route-meta">等待模型路由证据</div>
+              <div class="ollama-signal"><span class="route-label">Ollama / 当前模型</span><strong id="ollama-model">未采集</strong><small id="ollama-source">Qwen 服务状态未采集</small></div>
+            </article>
+          </div>
+
+          <div class="dashboard-grid lower-grid">
+            <article class="panel errors-panel">
+              <div class="panel-heading"><div><p class="eyebrow">最近信号</p><h3>最近错误与警告</h3></div><button class="text-button" data-jump="logs">查看日志 →</button></div>
+              <div class="error-list" id="dashboard-errors"></div>
+            </article>
+            <article class="panel qq-panel">
+              <div class="panel-heading"><div><p class="eyebrow">QQ 适配器 / 可观测</p><h3>连接与处理时间</h3></div><span class="panel-tag" id="qq-chip">未知</span></div>
+              <div class="metric-stack">
+                <div class="metric-row"><span>WebSocket 连接</span><strong id="qq-connection">未采集</strong></div>
+                <div class="metric-row"><span>最近事件</span><strong id="recent-event">未知</strong></div>
+                <div class="metric-row"><span>最近模型请求</span><strong id="recent-request">未知</strong></div>
+                <div class="metric-row"><span>最近成功回复</span><strong id="recent-reply">未知</strong></div>
+              </div>
+              <p class="panel-footnote">日志推断不等于 QQ 外部收发验证。</p>
+            </article>
+          </div>
+
+          <div class="ops-strip panel">
+            <div><p class="eyebrow">操作 / 安全范围</p><h3>只读操作</h3></div>
+            <div class="ops-actions"><button class="button button-quiet" id="copy-diagnostics" type="button">复制脱敏摘要</button><a class="button button-outline" id="control-ui-link" href="http://127.0.0.1:18789/" target="_blank" rel="noopener">打开 OpenClaw Control UI ↗</a></div>
+          </div>
+        </section>
+
+        <section class="page-section" data-page="runtime">
+          <div class="section-intro"><p class="eyebrow accent-text">运行与资源</p><h3>资源有边界，证据有来源</h3><p>把主机 RAM、Docker 容器 RAM、GPU VRAM 和 Ollama 模型拆开观察，采集失败时保留未知态。</p></div>
+          <div class="resource-card-grid" id="runtime-resource-cards"></div>
+          <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">Compose 服务</p><h3>有效服务清单</h3></div><span class="panel-tag">固定白名单</span></div><div class="service-table-wrap"><table class="service-table"><thead><tr><th>服务</th><th>运行态</th><th>健康状态</th><th>系统 RAM</th><th>数据来源</th></tr></thead><tbody id="service-table"></tbody></table></div></article>
+          <article class="panel evidence-panel"><div class="panel-heading"><div><p class="eyebrow">证据层级</p><h3>数据边界</h3></div></div><div class="evidence-grid"><div><span class="evidence-number">01</span><strong>直接采集</strong><p>Compose、healthz、nvidia-smi 和 Ollama 只说明本机组件状态。</p></div><div><span class="evidence-number">02</span><strong>日志推断</strong><p>连接、错误和备用路由只保留短摘要，不保存正文或认证头。</p></div><div><span class="evidence-number">03</span><strong>外部验证</strong><p>QQ 真实消息送达不由本地控制台证明。</p></div></div></article>
+        </section>
+
+        <section class="page-section" data-page="activity">
+          <div class="section-intro"><p class="eyebrow accent-text">QQ 活动 / 脱敏元数据</p><h3>只看处理流，不看聊天正文</h3><p>控制台从固定 Docker 日志尾部提取连接、入站、模型请求和回复发送事件；日志推断不等同于 QQ 外部送达。</p></div>
+          <div class="activity-header"><div class="activity-stat panel"><span class="eyebrow">当前队列</span><strong id="activity-queue">未采集</strong><small id="activity-queue-note">不把消息条数冒充当前 Token</small></div><div class="activity-stat panel"><span class="eyebrow">连接状态</span><strong id="activity-connection">未采集</strong><small id="activity-connection-source">日志证据</small></div><div class="activity-stat panel"><span class="eyebrow">事件采集</span><strong id="activity-event-source">未采集</strong><small id="activity-event-source-note">固定日志模式推断，不是事件桥</small></div></div>
+          <article class="panel timeline-panel"><div class="panel-heading"><div><p class="eyebrow">事件流</p><h3>最近事件</h3></div><span class="panel-tag">只保存脱敏元数据</span></div><div class="empty-state" id="activity-empty"><span class="empty-mark">∅</span><strong>暂无可确认事件</strong><p>Docker 日志可用时，控制台会提取连接、入站、模型请求和回复发送的时间戳，不保存消息正文或用户标识。</p></div><div class="timeline" id="activity-timeline"></div></article>
+        </section>
+
+        <section class="page-section" data-page="sessions">
+          <div class="section-intro"><p class="eyebrow accent-text">会话 / 上下文</p><h3>上下文看护，默认不展开身份</h3><p>只显示未来适配器允许的脱敏状态；当前不读取 OpenClaw 内部会话内容。</p></div>
+          <div class="session-guards"><div class="guard-card"><span class="guard-symbol">◌</span><div><strong>最近请求 Token</strong><p id="context-tokens">未采集</p><small id="context-tokens-note">当前会话占用未接入</small></div></div><div class="guard-card"><span class="guard-symbol">↻</span><div><strong>压缩 / 恢复</strong><p id="session-recovery">未采集</p><small id="session-recovery-note">运行配置未读取</small></div></div><div class="guard-card"><span class="guard-symbol">▦</span><div><strong>队列 / 汇聚</strong><p id="session-queue">未采集</p><small id="session-queue-note">运行配置未读取</small></div></div></div>
+          <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">会话快照</p><h3>活动会话</h3></div><span class="panel-tag" id="session-summary">隐私优先</span></div><div class="session-table-wrap"><table class="service-table"><thead><tr><th>脱敏会话</th><th>状态</th><th>最近活动</th><th>队列长度</th><th>最近请求 Token</th></tr></thead><tbody id="session-table"></tbody></table></div><div class="empty-state compact" id="session-empty"><strong>暂无会话元数据</strong><p>仅显示哈希会话标识、最近活动和最近请求 Token；不会展示完整群号、OpenID、正文或图片。</p></div></article>
+        </section>
+
+        <section class="page-section" data-page="logs">
+          <div class="section-intro"><p class="eyebrow accent-text">日志 / 诊断</p><h3>短尾日志，脱敏后再出边界</h3><p>只读取固定服务的有限日志尾部；原始认证头、消息正文、图片和用户标识不会通过 API 返回。</p></div>
+          <div class="log-toolbar"><span class="panel-tag" id="log-status">未知</span><span id="log-retention">尾部 80 行 / 最多 80 条记录</span><button class="button button-quiet" id="copy-diagnostics-logs" type="button">复制脱敏 JSON</button></div>
+          <article class="panel log-panel"><div class="log-list" id="log-list"></div></article>
+          <article class="panel diagnostics-note"><div class="note-marker">/</div><div><p class="eyebrow">诊断约定</p><h3>未知优先于假精确</h3><p>Docker 停止、GPU 不可用、Qwen 未启动、日志为空、端口冲突和采集超时都应留在页面上，并标明采集时间、数据来源和可信度（observedAt、source、confidence）。</p></div></article>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

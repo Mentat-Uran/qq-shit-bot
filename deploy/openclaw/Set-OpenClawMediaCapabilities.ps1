@@ -32,7 +32,10 @@ if ($imageEnabled) {
     # The lightweight image profile uses the in-project Qwen service only.
     # The retired heavy CLI and video routes are removed so they are never
     # called even if the retained compose overlay is started manually.
-    $media.models = @($media.models | Where-Object { $_.type -ne 'cli' })
+    $media.models = @($media.models | Where-Object {
+            $typeProperty = $_.PSObject.Properties['type']
+            $null -eq $typeProperty -or $typeProperty.Value -ne 'cli'
+        })
     $media.PSObject.Properties.Remove('video')
 } else {
     $config.tools.PSObject.Properties.Remove('media')

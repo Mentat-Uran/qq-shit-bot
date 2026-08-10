@@ -18,14 +18,14 @@ The Compose project name is `qq-shit-bot`, matching the GitHub remote repository
 - The unrelated bundled Codex extension is explicitly disabled because it is not needed by the QQ bot and is incompatible with this pinned gateway runtime.
 - Web search uses OpenClaw's bundled no-key DuckDuckGo provider; no search credential is copied or exposed.
 - A local `reply_payload_sending` hook suppresses error and model-fallback payloads in QQ groups; the full diagnostic remains in the gateway log for local troubleshooting.
-- QQ direct and group access restricted to configured owner identifiers by default.
+- QQ direct messages and group mentions are open to everyone by default (`dmPolicy`/`groupPolicy` = `open`); group replies still require an @ mention. Re-enable the owner allowlist by setting `dmPolicy`/`groupPolicy` to `allowlist` and adding the OpenIDs to `allowFrom`/`groupAllowFrom`.
 - Startup model discovery disabled because all providers are declared explicitly; model loading still occurs on the first request.
-- Qwen2.5-VL 7B is the only enabled image-understanding path. The NVIDIA LocateAnything-3B image-fusion fallback and the Microsoft Mage-VL video bridge are archived under `docs/retired-visual/`; they are no longer in the deployment path, built, or started, and their model routes are absent from `openclaw.json`. No video analysis is performed by the gateway.
+- Qwen2.5-VL 7B is the only enabled image-understanding path. The NVIDIA LocateAnything-3B image-fusion fallback and the Microsoft Mage-VL video bridge have been removed from the repository and deployment path. Their model routes are absent from `openclaw.json`, and no video analysis is performed by the gateway.
 - The Qwen2.5-VL Ollama service, OpenClaw gateway, and context-recovery sidecar are the active services in the Compose project. Qwen has no host port and is reached at `qwen-vision:11434` on the private Compose network.
 - QQ image messages can use a two-message workflow for mobile clients: send the image first, then send a message that @mentions the bot. A media message that already includes the bot mention is passed directly; ordinary non-media chatter remains mention-gated.
 - Group sessions have a 120-minute idle reset, and the `context-recovery` sidecar watches the gateway log for an unrecoverable context overflow or stalled agent run and resets the affected QQ group session automatically. Existing log contents are not replayed when the sidecar starts, so an old failure cannot reset a newly started session.
 
-`Watch-OpenClawModel.ps1` probes SenseNova every five minutes with a one-token request. A 429 is logged locally and written as redacted route state; failed model requests can then use the configured official DeepSeek fallback. The watcher is started with the gateway by `Start-OpenClawDocker.ps1`.
+The configured model route uses SenseNova as primary and official DeepSeek as fallback. The normal Windows BAT path does not run a host-side watcher; provider and fallback diagnostics remain local and are filtered before QQ delivery.
 
 QQ group delivery is guarded separately from model failover. Successful fallback replies are delivered normally, while `isError` and `isFallbackNotice` reply payloads are cancelled before the QQ adapter sees them. This prevents provider, quota, rate-limit, busy, and internal stack details from appearing in the group without hiding the corresponding gateway logs.
 
@@ -46,7 +46,7 @@ Then run:
 ./setup.sh
 ```
 
-The setup script and the Windows launcher share `environment-contract.txt`. They migrate supported legacy aliases, validate `QQBOT_HOME_CHANNEL` and `DEEPSEEK_API_KEY`, and never print secret values. For a no-Docker preflight use `./validate-env.sh --diagnose --allow-placeholders`.
+The Unix setup script uses `environment-contract.txt`; the Windows BAT launcher performs a value-presence and placeholder check directly against `.env`. Neither normal path prints secret values. For a no-Docker preflight use `./validate-env.sh --diagnose --allow-placeholders`.
 
 The script creates `runtime/`, copies the repository persona files, installs the official QQ plugin inside a one-shot OpenClaw container, validates the config, ensures the in-project `qwen-vision` service has `qwen2.5vl:7b`, and starts the gateway plus the context-recovery sidecar. It accepts either the Docker Compose plugin (`docker compose`) or the standalone `docker-compose` command. Secrets and runtime state remain under ignored local paths.
 
@@ -74,7 +74,9 @@ docker compose up -d openclaw-gateway context-recovery
 
 On Windows, use Docker Desktop with WSL or Git Bash to run `setup.sh`. The Compose file itself is platform-neutral; the equivalent manual sequence is to create `runtime/config` and `runtime/workspace`, copy `openclaw.json`, `AGENTS.md`, and `SOUL.md` into them, install the plugin with the `openclaw-cli` service, validate the config, start `qwen-vision`, ensure `qwen2.5vl:7b` is present, and start `openclaw-gateway context-recovery`.
 
-For the local Windows deployment, double-click `scripts/windows/Start-OpenClawQQBot.bat` from the repository or use the desktop shortcut copy. It calls `deploy/openclaw/Start-OpenClawDocker.ps1`, which starts the gateway, recovery sidecar, and lightweight Qwen image service only; the model route watcher and proactive review jobs are also registered. The repository BAT resolves the project root relative to its own location, so it remains portable after the workspace is moved.
+For the local Windows deployment, double-click `scripts/windows/Start-OpenClawQQBot.bat` from the repository or use the desktop shortcut copy. The pure BAT launcher resolves the project root relative to its own location, validates `.env`, installs/validates the QQ plugin, starts the lightweight Qwen image service, and starts the gateway plus recovery sidecar without invoking PowerShell. It skips the optional host-side watcher and proactive review registration.
+
+`scripts/windows/Bind-OpenClawQQBot.bat` is the pure BAT wrapper for an already configured `.env`. It validates that QQ credentials exist and then calls the pure BAT launcher; it does not echo secret input or perform QR credential capture. The legacy PowerShell QR helper remains available only for first-time binding when manual `.env` configuration is not possible. Do not paste AppSecret or model keys into chat, logs, screenshots, or source files.
 
 ## Container and GPU management
 
@@ -83,7 +85,7 @@ The normal QQ runtime is split into these services:
 - `openclaw-gateway`: QQ WebSocket, session/context handling, model routing, and final Chinese text replies. It does not load the heavy vision models.
 - `context-recovery`: watches gateway logs and resets a stuck or overflowed QQ group session. It is CPU-only and small.
 - `qwen-vision`: private Ollama `Qwen2.5-VL 7B` service for image understanding and OCR. It is GPU-enabled and loads its model on demand.
-- `docs/retired-visual/`: archived image/video artifacts only; they are not part of the Compose files used by the supported deployment and are never built or started.
+- Heavy image/video artifacts are not retained; they are not part of the supported deployment.
 - `qq-diagnostic-filter-init`: one-shot initialization service that seeds the local QQ diagnostics and recovery scripts; it is not a persistent worker and does not use GPU.
 - `openclaw-cli`: an optional `cli` profile for administrative commands; it normally remains stopped and does not use GPU.
 
@@ -107,8 +109,8 @@ The helper updates the runtime capability profile and recreates only the gateway
 
 The normal launcher starts the gateway and lightweight Qwen image service:
 
-```powershell
-.\Start-OpenClawDocker.ps1
+```bat
+..\..\scripts\windows\Start-OpenClawQQBot.bat
 ```
 
 The gateway and recovery sidecar should remain running for QQ replies. Only the Qwen image service is started by the supported launchers.
@@ -125,21 +127,21 @@ The proactive review is intentionally periodic rather than per-message: it reads
 
 On Windows, rerun the launcher after changing `.env` configuration:
 
-```bash
-powershell -ExecutionPolicy Bypass -File .\Start-OpenClawDocker.ps1 -NoWatcher
+```bat
+..\..\scripts\windows\Start-OpenClawQQBot.bat
 ```
 
-To allow more QQ users, add direct-message user OpenIDs to `allowFrom` and group member OpenIDs to `groupAllowFrom`. To restrict the bot to specific groups, replace the `"*"` entry under `channels.qqbot.groups` with the allowed group OpenIDs. Keep allowlists enabled on bots that are present in public groups.
+The default deployment is open: every QQ user can DM the bot, and any group member who @ mentions the bot is answered. To restrict access again, set `channels.qqbot.dmPolicy`/`groupPolicy` to `allowlist`, add the direct-message user OpenIDs to `allowFrom` and the group member OpenIDs to `groupAllowFrom`, and keep allowlists enabled while the bot is in public groups.
 
 ## Windows local deployment
 
 Start the complete local stack with:
 
-```powershell
-.\Start-OpenClawDocker.ps1
+```bat
+..\..\scripts\windows\Start-OpenClawQQBot.bat
 ```
 
-The launcher reads QQ and model credentials from the ignored `.env` file, uses `runtime/workspace` for the OpenClaw workspace, starts Qwen plus the OpenClaw gateway and context-recovery sidecar, installs/validates the QQ plugin, and starts the quota watcher. It does not write credentials to the repository.
+The launcher reads QQ and model credentials from the ignored `.env` file, uses `runtime/workspace` for the OpenClaw workspace, starts Qwen plus the OpenClaw gateway and context-recovery sidecar, and installs/validates the QQ plugin. It does not write credentials to the repository and does not invoke PowerShell.
 
 Windows bind mounts appear world-writable inside Docker Desktop. The launcher therefore runs `qq-diagnostic-filter-init` first; it copies the local hook into a named volume with mode `0644`, so OpenClaw's plugin trust check can load it without weakening the security policy.
 

@@ -24,7 +24,7 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install --disable-pip-version-check -r tests/requirements-deploy.txt
       - name: Run deployment behavior tests
-        run: python -m pytest tests/deploy/ -q
+        run: python -m pytest tests/deploy/ tests/ops_console/ -q
       - name: Run tracked-file security audit
         run: python scripts/security_audit.py
 
@@ -79,7 +79,9 @@ jobs:
             'deploy/openclaw/Start-OpenClawVision.ps1',
             'deploy/openclaw/Stop-OpenClawVision.ps1',
             'deploy/openclaw/Set-OpenClawMediaCapabilities.ps1',
-            'deploy/openclaw/Watch-OpenClawModel.ps1'
+            'deploy/openclaw/Watch-OpenClawModel.ps1',
+            'scripts/windows/Bind-OpenClawQQBot.ps1',
+            'scripts/windows/Start-QQBotConsole.ps1'
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -88,7 +90,9 @@ jobs:
             if ($errors.Count -gt 0) { throw "PowerShell parse failed: $file" }
           }
           $bat = Get-Content -Raw scripts/windows/Start-OpenClawQQBot.bat
-          if ($bat -notmatch 'deploy\\openclaw\\Start-OpenClawDocker\.ps1') { throw 'Windows BAT launcher is not wired to the Docker launcher.' }
+          if ($bat -match '(?i)powershell') { throw 'Windows BAT launcher must stay PowerShell-free.' }
+          if ($bat -notmatch '(?i)docker compose') { throw 'Windows BAT launcher is not wired to Docker Compose.' }
+          if ($bat -notmatch 'qwen2\.5vl:7b') { throw 'Windows BAT launcher does not prepare the pinned Qwen model.' }
 
   shell-validation:
     name: Unix launcher and diagnostics

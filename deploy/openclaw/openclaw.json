@@ -135,23 +135,13 @@
       ]
     }
   },
-  "channels": {
+"channels": {
     "qqbot": {
       "enabled": true,
       "appId": "${QQBOT_APP_ID}",
-      "clientSecret": {
-        "source": "env",
-        "provider": "default",
-        "id": "QQBOT_CLIENT_SECRET"
-      },
-      "dmPolicy": "allowlist",
-      "allowFrom": [
-        "${QQBOT_ALLOWED_USER_OPENID}"
-      ],
-      "groupPolicy": "allowlist",
-      "groupAllowFrom": [
-        "${QQBOT_ALLOWED_MEMBER_OPENID}"
-      ],
+      "clientSecret": "${QQBOT_CLIENT_SECRET}",
+      "dmPolicy": "open",
+      "groupPolicy": "open",
       "contextVisibility": "all",
       "historyLimit": 32,
       "groups": {
