@@ -58,7 +58,7 @@ if not exist "runtime\config" mkdir "runtime\config"
 if not exist "runtime\workspace" mkdir "runtime\workspace"
 copy /y "openclaw.json" "runtime\config\openclaw.json" >nul
 if errorlevel 1 goto :fail_after_pushd
-copy /y "%PROJECT_DIR%\AGENTS.md" "runtime\workspace\AGENTS.md" >nul
+copy /y "%DEPLOY_DIR%\bot-workspace\AGENTS.md" "runtime\workspace\AGENTS.md" >nul
 if errorlevel 1 goto :fail_after_pushd
 copy /y "%PROJECT_DIR%\SOUL.md" "runtime\workspace\SOUL.md" >nul
 if errorlevel 1 goto :fail_after_pushd
