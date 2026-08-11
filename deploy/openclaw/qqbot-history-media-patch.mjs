@@ -103,6 +103,13 @@ ${VIDEO_MENTION_GATE_MARKER}
   source = source.replace(existingVideoGateCall, "\n");
   if (!source.includes(MEDIA_CAPABILITY_MARKER)) {
     source = source.replace(`${PATCH_MARKER}\n`, `${helper}${PATCH_MARKER}\n`);
+  } else if (!source.includes("function mergeSingleQuotedImage(processed")) {
+    const helperStart = source.indexOf("function readMediaCapabilities() {");
+    const markerIndex = source.indexOf(MEDIA_CAPABILITY_MARKER, helperStart);
+    if (helperStart < 0 || markerIndex < 0) {
+      throw new Error("QQ media capability patch found an unversioned helper block");
+    }
+    source = `${source.slice(0, helperStart)}${buildInjectedMediaPolicySource(MEDIA_CAPABILITIES_PATH)}${source.slice(markerIndex)}`;
   }
   if (!source.includes("function filterVideoByMention(processed, allowVideo)")) {
     source = source.replace(`${MEDIA_CAPABILITY_MARKER}\n`, `${helper}`);
