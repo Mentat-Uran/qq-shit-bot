@@ -18,6 +18,10 @@
 
 控制台启动不会启动、停止或重启 OpenClaw。正式 QQ Bot 仍必须使用 `scripts/windows/Start-OpenClawQQBot.bat`，该入口和 `deploy/openclaw/Start-OpenClawDocker.ps1` 没有被替换。
 
+macOS 使用 `scripts/mac/console.sh`。默认仍绑定 `127.0.0.1:18888`；需要同一局域网 Windows 浏览器访问时，设置 `OPS_CONSOLE_BIND_HOST`、`OPS_CONSOLE_PORT` 和 `OPS_CONSOLE_TOKEN` 后运行该脚本。非回环监听会要求认证，支持浏览器 Basic Auth（用户名任意、密码为 Token）或请求头 `Authorization: Bearer <token>`。Token 不进入 URL、页面快照或日志。
+
+从任意工作目录启动 Mac 控制台都可以使用 `scripts/mac/console.sh`；`--no-browser` 适合 LaunchAgent 或无图形会话。Docker Desktop 暂不可用时，控制台仍应能启动并返回降级快照；只有服务状态采集会显示为未知或降级。需要进程退出后自动拉起时，运行 `scripts/mac/install-launch-agent.sh`，卸载使用 `scripts/mac/uninstall-launch-agent.sh`。
+
 如果 BAT 窗口显示 `Exit code: 9009`，新版启动器会明确提示缺失的是 Windows PowerShell 还是 Python 3.11+。也可以直接在 PowerShell 中运行入口来查看原始错误：
 
 ```powershell
@@ -33,7 +37,7 @@
 ```text
 ops_console/
   server.py       本机 HTTP 服务、静态资源白名单和 REST API
-  collectors.py   Docker / healthz / Ollama / nvidia-smi / 主机资源采集器
+  collectors.py   Docker / healthz / macOS 或 Windows 主机资源采集器
   models.py       observedAt / source / confidence 数据模型助手
   redaction.py    日志和错误摘要脱敏
   static/         单页控制台
@@ -46,6 +50,8 @@ tests/ops_console/  控制台单元和 HTTP 边界测试
 ## 页面与 API
 
 页面包含 Dashboard、Runtime / Resources、QQ Activity、Sessions / Context、Logs / Diagnostics 五个区域。Phase 1 的 Operations 只提供刷新、打开固定的 OpenClaw Control UI 地址和查看三项有效服务，不提供任意命令、任意路径、任意 URL、Docker socket、清理缓存或高风险重启。
+
+Mac 模式的固定服务只有 `openclaw-gateway` 与 `context-recovery`；GPU VRAM 和 Ollama 显示为不适用，视觉模式显示 SenseNova 6.7 Flash-Lite。Windows 模式继续采集 Qwen/Ollama 与 NVIDIA 状态。
 
 ### 界面主题与语言
 
@@ -69,7 +75,7 @@ API 只有以下固定路由：
 - `source`：Docker Compose、OpenClaw `/healthz`、Ollama、`nvidia-smi`、固定日志尾部或本机 API；
 - `confidence`：`direct`、`inferred` 或 `not_collected`。
 
-GPU 采集只报告 `nvidia-smi` 的 VRAM、利用率和温度；Docker `MEM USAGE` 单独作为系统 RAM，绝不转换成显存。Qwen 服务未运行、GPU 不可用或命令超时会显示 unknown/degraded，不会显示为 0 或正常。
+Windows GPU 采集只报告 `nvidia-smi` 的 VRAM、利用率和温度；Docker `MEM USAGE` 单独作为系统 RAM，绝不转换成显存。Mac 云视觉模式明确返回 `not_applicable`，不会显示为 0 或伪造正常 GPU。
 
 ## 数据和隐私边界
 

@@ -38,8 +38,11 @@ jobs:
         run: |
           cp .env.example .env
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml config --quiet
+          docker compose --env-file .env -f docker-compose.mac.yml config --quiet
       - name: Validate redacted preflight report
-        run: python scripts/openclaw_diagnostic.py --mode preflight --skip-docker --pretty
+        run: |
+          python scripts/openclaw_diagnostic.py --mode preflight --skip-docker --pretty
+          python scripts/openclaw_diagnostic.py --mode preflight --deployment mac --env-file deploy/openclaw/.env.example --compose-dir deploy/openclaw --skip-docker --pretty
 
   javascript-validation:
     name: JavaScript behavior
@@ -103,8 +106,11 @@ jobs:
         run: |
           sh -n deploy/openclaw/setup.sh
           sh -n deploy/openclaw/validate-env.sh
+          sh -n deploy/openclaw/validate-mac-env.sh scripts/mac/*.sh
           sh deploy/openclaw/validate-env.sh --env-file deploy/openclaw/.env.example --diagnose --allow-placeholders
+          sh deploy/openclaw/validate-mac-env.sh --env-file deploy/openclaw/.env.example --allow-placeholders
           python scripts/openclaw_diagnostic.py --mode preflight --skip-docker --pretty
+          python scripts/openclaw_diagnostic.py --mode preflight --deployment mac --env-file deploy/openclaw/.env.example --compose-dir deploy/openclaw --skip-docker --pretty
           python scripts/openclaw_diagnostic.py --mode health --skip-docker --pretty
 
   repository-hygiene:

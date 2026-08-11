@@ -21,12 +21,12 @@
       "timeoutSeconds": 900,
       "utilityModel": "",
       "model": {
-        "primary": "sensenova-token/deepseek-v4-flash",
+        "primary": "deepseek/deepseek-chat",
         "fallbacks": [
-          "deepseek/deepseek-chat"
+          "sensenova-token/deepseek-v4-flash"
         ]
       },
-      "imageModel": "local-vision/qwen2.5vl:7b",
+      "imageModel": "sensenova-vision/sensenova-6.7-flash-lite",
       "compaction": {
         "mode": "safeguard",
         "keepRecentTokens": 20000,
@@ -45,26 +45,6 @@
   "models": {
     "mode": "merge",
     "providers": {
-      "sensenova-token": {
-        "baseUrl": "https://token.sensenova.cn/v1",
-        "apiKey": {
-          "source": "env",
-          "provider": "default",
-          "id": "SENSENOVA_API_KEY"
-        },
-        "api": "openai-completions",
-        "models": [
-          {
-            "id": "deepseek-v4-flash",
-            "name": "SenseNova DeepSeek V4 Flash",
-            "input": [
-              "text"
-            ],
-            "contextWindow": 1048576,
-            "maxTokens": 2048
-          }
-        ]
-      },
       "deepseek": {
         "baseUrl": "https://api.deepseek.com/v1",
         "apiKey": {
@@ -76,7 +56,7 @@
         "models": [
           {
             "id": "deepseek-chat",
-            "name": "Official DeepSeek Chat",
+            "name": "Official DeepSeek Chat (Mac final reply)",
             "input": [
               "text"
             ],
@@ -85,20 +65,44 @@
           }
         ]
       },
-      "local-vision": {
-        "baseUrl": "http://qwen-vision:11434/v1",
-        "apiKey": "local",
+      "sensenova-token": {
+        "baseUrl": "https://token.sensenova.cn/v1",
+        "apiKey": {
+          "source": "env",
+          "provider": "default",
+          "id": "SENSENOVA_API_KEY"
+        },
         "api": "openai-completions",
         "models": [
           {
-            "id": "qwen2.5vl:7b",
-            "name": "Local Qwen2.5-VL 7B",
+            "id": "deepseek-v4-flash",
+            "name": "SenseNova DeepSeek V4 Flash (text fallback)",
+            "input": [
+              "text"
+            ],
+            "contextWindow": 1048576,
+            "maxTokens": 2048
+          }
+        ]
+      },
+      "sensenova-vision": {
+        "baseUrl": "https://token.sensenova.cn/v1",
+        "apiKey": {
+          "source": "env",
+          "provider": "default",
+          "id": "SENSENOVA_API_KEY"
+        },
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "sensenova-6.7-flash-lite",
+            "name": "SenseNova 6.7 Flash-Lite (Mac image understanding)",
             "input": [
               "text",
               "image"
             ],
-            "contextWindow": 32768,
-            "maxTokens": 512,
+            "contextWindow": 131072,
+            "maxTokens": 800,
             "compat": {
               "supportsTools": false
             }
@@ -135,7 +139,7 @@
       ]
     }
   },
-"channels": {
+  "channels": {
     "qqbot": {
       "enabled": true,
       "appId": "${QQBOT_APP_ID}",
@@ -152,7 +156,7 @@
           "ignoreOtherMentions": false,
           "historyLimit": 32,
           "commandLevel": "safety",
-          "prompt": "群聊上下文策略：普通群消息即使没有艾特，也要作为待处理上下文持续采集和保留；只有被艾特、回复机器人、私聊，或主动巡检才调用模型。每条新的艾特消息默认视为新话题，只使用当前消息和明确引用的内容，不得因为上一条消息有图片就自动附加上一张图片。表情包、梗图和普通图片默认只给一句短点评或反应，不要复述画面、OCR或写图片说明；只有当前消息明确询问图片内容时才进行视觉分析。被艾特、回复机器人或私聊时，除非触发 AGENTS.md 的禁止规则或其他安全规则，必须正常回答，不得输出 NO_REPLY；只有主动巡检任务在判断没有必要发言时才允许只输出 NO_REPLY。主动巡检时先通读最近群消息，判断是否有需要补充、承接、纠错或活跃气氛的内容；不要为了刷存在感重复别人已经说过的内容。每次主动发言最多拆成 1 到 3 条短消息，优先一条解决。涉及 QQ 小程序时，先提取标题并搜索该标题，再根据搜索结果解读；搜不到时明确说明。古代政治相关问题按 AGENTS.md 的禁止规则处理。Internal error policy: never send provider, model, API, HTTP, 429, quota, rate-limit, busy, safety, tool, trace, stack, or fallback diagnostics to QQ. If a route fails, use a successful fallback answer; if every route fails, send no diagnostic text.",
+          "prompt": "群聊上下文策略：普通群消息即使没有艾特，也要作为待处理上下文持续采集和保留；只有被艾特、回复机器人、私聊，或主动巡检才调用模型。每条新的艾特消息默认视为新话题，只使用当前消息和明确引用的内容，不得因为上一条消息有图片就自动附加上一张图片。表情包、梗图和普通图片默认只给一句短点评或反应，不要复述画面、OCR或写图片说明；只有当前消息明确询问图片内容时才进行视觉分析。被艾特、回复机器人或私聊时，除非触发 AGENTS.md 的禁止规则或其他安全规则，必须正常回答，不得输出 NO_REPLY；只有主动巡检任务在判断没有必要发言时才允许只输出 NO_REPLY。主动巡检时先通读最近群消息，判断是否有需要补充、承接、纠错或活跃气氛的内容；不要为了刷存在感重复别人已经说过的内容。每次主动发言最多拆成 1 到 3 条短消息，优先一条解决。涉及 QQ 小程序时，先提取标题并搜索该标题，再根据搜索结果解读；搜不到时明确说明。古代政治相关问题按 AGENTS.md 的禁止规则处理。Internal error policy: never send provider, model, API, HTTP, 429, quota, rate-limit, busy, safety, tool, trace, stack, or fallback diagnostics to QQ. If a route fails, use a successful fallback answer；if every route fails, send no diagnostic text.",
           "tools": {
             "deny": [
               "exec",
@@ -179,8 +183,8 @@
     "media": {
       "models": [
         {
-          "provider": "local-vision",
-          "model": "qwen2.5vl:7b",
+          "provider": "sensenova-vision",
+          "model": "sensenova-6.7-flash-lite",
           "capabilities": [
             "image"
           ],

@@ -1,0 +1,111 @@
+name: qq-shit-bot
+
+x-openclaw-common: &openclaw-common
+  image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
+  env_file:
+    - path: .env
+      required: true
+  user: "${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000}"
+  environment:
+    HOME: /home/node
+    OPENCLAW_HOME: /home/node
+    OPENCLAW_STATE_DIR: /home/node/.openclaw
+    OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+    OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+    OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+    OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+    OPENCLAW_DISABLE_BONJOUR: "1"
+    OPENCLAW_SKIP_STARTUP_MODEL_PREWARM: "1"
+    NPM_CONFIG_CACHE: /home/node/.openclaw/.npm-cache
+    TZ: ${OPENCLAW_TZ:-Asia/Shanghai}
+  volumes:
+    - ./runtime/config:/home/node/.openclaw
+    - openclaw-state-mac:/home/node/.openclaw/state
+    - ./runtime/workspace:/home/node/.openclaw/workspace
+    - qq-diagnostic-filter-mac:/opt/openclaw-local
+    - openclaw-logs-mac:/tmp/openclaw
+  cap_drop:
+    - NET_RAW
+    - NET_ADMIN
+  security_opt:
+    - no-new-privileges:true
+  init: true
+
+services:
+  qq-diagnostic-filter-init:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
+    user: "0:0"
+    volumes:
+      - qq-diagnostic-filter-mac:/opt/openclaw-local
+      - openclaw-state-mac:/home/node/.openclaw/state
+      - openclaw-logs-mac:/tmp/openclaw
+      - ./qq-diagnostic-filter.mjs:/seed/qq-diagnostic-filter.mjs:ro
+      - ./openclaw.plugin.json:/seed/openclaw.plugin.json:ro
+      - ./qqbot-history-media-patch.mjs:/seed/qqbot-history-media-patch.mjs:ro
+      - ./media-policy.mjs:/seed/media-policy.mjs:ro
+      - ./diagnostic-policy.mjs:/seed/diagnostic-policy.mjs:ro
+      - ./web-search-patch.mjs:/seed/web-search-patch.mjs:ro
+      - ./context-recovery.mjs:/seed/context-recovery.mjs:ro
+      - ./context-recovery-core.mjs:/seed/context-recovery-core.mjs:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - "mkdir -p /tmp/openclaw /home/node/.openclaw/state && chown ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /tmp/openclaw && chown -R ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /home/node/.openclaw/state && cp /seed/qq-diagnostic-filter.mjs /opt/openclaw-local/qq-diagnostic-filter.mjs && cp /seed/openclaw.plugin.json /opt/openclaw-local/openclaw.plugin.json && cp /seed/qqbot-history-media-patch.mjs /opt/openclaw-local/qqbot-history-media-patch.mjs && cp /seed/media-policy.mjs /opt/openclaw-local/media-policy.mjs && cp /seed/diagnostic-policy.mjs /opt/openclaw-local/diagnostic-policy.mjs && cp /seed/web-search-patch.mjs /opt/openclaw-local/web-search-patch.mjs && cp /seed/context-recovery.mjs /opt/openclaw-local/context-recovery.mjs && cp /seed/context-recovery-core.mjs /opt/openclaw-local/context-recovery-core.mjs && chmod 0644 /opt/openclaw-local/qq-diagnostic-filter.mjs /opt/openclaw-local/openclaw.plugin.json /opt/openclaw-local/qqbot-history-media-patch.mjs /opt/openclaw-local/media-policy.mjs /opt/openclaw-local/diagnostic-policy.mjs /opt/openclaw-local/web-search-patch.mjs /opt/openclaw-local/context-recovery.mjs /opt/openclaw-local/context-recovery-core.mjs"
+    restart: "no"
+
+  openclaw-gateway:
+    <<: *openclaw-common
+    depends_on:
+      qq-diagnostic-filter-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    ports:
+      - "${OPENCLAW_GATEWAY_BIND_HOST:-127.0.0.1}:${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    command:
+      - sh
+      - -c
+      - >-
+        node /opt/openclaw-local/web-search-patch.mjs && node /opt/openclaw-local/qqbot-history-media-patch.mjs && exec node
+        dist/index.js gateway --bind lan --port 18789 2>&1 | tee -a
+        /tmp/openclaw/gateway.log
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:18789/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  openclaw-cli:
+    <<: *openclaw-common
+    profiles: ["cli"]
+    entrypoint: ["node", "dist/index.js"]
+    stdin_open: true
+    tty: true
+
+  context-recovery:
+    <<: *openclaw-common
+    depends_on:
+      openclaw-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    command:
+      - node
+      - /opt/openclaw-local/context-recovery.mjs
+
+volumes:
+  qq-diagnostic-filter-mac:
+    name: qqshitbot-openclaw-mac_qq-diagnostic-filter
+  openclaw-logs-mac:
+    name: qqshitbot-openclaw-mac_openclaw-logs
+  openclaw-state-mac:
+    name: qqshitbot-openclaw-mac_openclaw-state

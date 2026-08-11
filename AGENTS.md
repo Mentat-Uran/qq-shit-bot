@@ -1,13 +1,13 @@
 # qq-shit-bot 项目现状
 
-本仓库是一个 QQ 群聊机器人项目。当前唯一运行形态是 **OpenClaw + Docker**:OpenClaw `2026.7.1` 与官方 `@openclaw/qqbot` 插件全部跑在 Docker 里,部署入口是 `deploy/openclaw/`,详细说明见 `deploy/openclaw/README.md`。
+本仓库是一个 QQ 群聊机器人项目。当前运行形态是 **OpenClaw + Docker**:OpenClaw `2026.7.1` 与官方 `@openclaw/qqbot` 插件全部跑在 Docker 里,部署入口是 `deploy/openclaw/`,详细说明见 `deploy/openclaw/README.md`。Windows 使用默认 Compose + Qwen 视觉；macOS 使用 `docker-compose.mac.yml` + SenseNova 云视觉。
 
 - 模型路由:商汤 SenseNova `deepseek-v4-flash` 为主,官方 DeepSeek `deepseek-chat` 兜底;密钥只存在于 `deploy/openclaw/.env`(已被 gitignore),永不提交。
-- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是唯一启用的图像识别路径;Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合方案已删除,不再构建或启动。
+- Windows 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是 Windows 链路的图像识别路径;macOS 不启动本地视觉服务,图片走 SenseNova `sensenova-6.7-flash-lite`,结果交给 DeepSeek 文本模型;Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合方案已删除,不再构建或启动。
 - 上下文管理:群历史 32 条、消息队列收集式汇聚(上限 32 条)、120 分钟空闲重置、`contextTokens` 131072、compaction safeguard 模式(压缩后保留 20000 token 与最近 8 轮),`context-recovery` 守护进程在上下文溢出或卡死时重置对应群会话。
 - 仓库只保留 OpenClaw Docker 运行链路与 QQ 机器人相关文档;旧的本地运行代码和部署入口已移除,不要在仓库外重新接入旧方案。
-- Windows 正式启动入口是 `scripts/windows/Start-OpenClawQQBot.bat`,它直接调用 Docker Compose;本机只读运维面板入口是 `scripts/windows/Start-QQBotConsole.bat`,默认监听 `127.0.0.1:18888`。
-- Mac 迁移和 SenseNova 局域网运行面板仍处于需求与实现阶段,以 `MAC_MIGRATION_SENSENOVA_LAN_REQUIREMENTS.md` 为约束;不能把需求文档、静态测试或本机健康检查当成 Mac 部署或真实 QQ 收发已完成的证据。
+- Windows 正式启动入口是 `scripts/windows/Start-OpenClawQQBot.bat`,它直接调用 Docker Compose;Windows 本机只读运维面板入口是 `scripts/windows/Start-QQBotConsole.bat`,默认监听 `127.0.0.1:18888`。Mac 正式入口是 `scripts/mac/start.sh`、`stop.sh`、`status.sh`、`logs.sh` 和 `check-env.sh`,面板入口是 `scripts/mac/console.sh`。
+- Mac 迁移源码、SenseNova→DeepSeek 在线探针和受保护局域网面板本机路径已验证,以 `MAC_MIGRATION_SENSENOVA_LAN_REQUIREMENTS.md` 为约束;Windows 跨设备访问、真实 QQ 文字/图片收发仍必须按独立证据记录,不能把本机健康检查或 QQ WebSocket 已连接误写成真实 QQ 已完成。
 - 凭据只允许来自被忽略的 `deploy/openclaw/.env`;不得提交、打印、复制或在面板/API 中返回 `.env`、API key、QQ Secret、会话正文、完整群号或私聊内容。
 
 ## Development and delivery boundaries

@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hmac
+import ipaddress
 import json
+import os
 import sys
 import threading
 import time
@@ -25,7 +29,25 @@ DEFAULT_PORT = 18888
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-def _empty_services(observed_at: str) -> list[dict[str, Any]]:
+def deployment_name(value: str | None = None) -> str:
+    return "mac" if (value or os.environ.get("QQBOT_DEPLOYMENT") or "windows").lower() == "mac" else "windows"
+
+
+def default_services(deployment: str) -> tuple[str, ...]:
+    return ("openclaw-gateway", "context-recovery") if deployment == "mac" else ("openclaw-gateway", "context-recovery", "qwen-vision")
+
+
+def valid_bind_host(host: str) -> bool:
+    if host in {"0.0.0.0", "::"}:
+        return True
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return host in {HOST, "::1", "localhost"}
+    return True
+
+
+def _empty_services(observed_at: str, deployment: str = "windows") -> list[dict[str, Any]]:
     return [
         {
             "service": service,
@@ -36,13 +58,14 @@ def _empty_services(observed_at: str) -> list[dict[str, Any]]:
             "source": "console fallback",
             "confidence": "not_collected",
         }
-        for service in ("openclaw-gateway", "context-recovery", "qwen-vision")
+        for service in default_services(deployment)
     ]
 
 
-def degraded_snapshot(detail: str) -> dict[str, Any]:
+def degraded_snapshot(detail: str, *, host: str = HOST, deployment: str | None = None) -> dict[str, Any]:
     observed_at = utc_now()
-    services = _empty_services(observed_at)
+    mode = deployment_name(deployment)
+    services = _empty_services(observed_at, mode)
     unknown_host = {
         "cpu": unknown("host CPU", detail, observed_at),
         "memory": unknown("host memory", detail, observed_at),
@@ -60,8 +83,9 @@ def degraded_snapshot(detail: str) -> dict[str, Any]:
     }]
     return {
         "schemaVersion": "qqbot-ops/v1",
+        "deployment": mode,
         "observedAt": observed_at,
-        "console": {"status": "degraded", "detail": detail, "bind": HOST, "port": None, "source": "local console snapshot", "confidence": "direct"},
+        "console": {"status": "degraded", "detail": detail, "bind": host, "port": None, "deployment": mode, "source": "local console snapshot", "confidence": "direct"},
         "dashboard": {
             "status": "degraded",
             "detail": detail,
@@ -74,15 +98,15 @@ def degraded_snapshot(detail: str) -> dict[str, Any]:
             "modelRoute": unknown("model route state", detail, observed_at),
             "recentErrors": errors,
             "host": unknown_host,
-            "gpu": unknown("nvidia-smi / qwen-vision", detail, observed_at),
-            "ollama": unknown("ollama ps via qwen-vision", detail, observed_at),
+            "gpu": unknown("Mac SenseNova cloud vision" if mode == "mac" else "nvidia-smi / qwen-vision", detail, observed_at),
+            "ollama": unknown("Mac SenseNova cloud vision" if mode == "mac" else "ollama ps via qwen-vision", detail, observed_at),
             "lastRefreshAt": observed_at,
         },
         "runtime": {
             "services": services,
             "docker": unknown("docker compose", detail, observed_at),
-            "gpu": unknown("nvidia-smi / qwen-vision", detail, observed_at),
-            "ollama": unknown("ollama ps via qwen-vision", detail, observed_at),
+            "gpu": unknown("Mac SenseNova cloud vision" if mode == "mac" else "nvidia-smi / qwen-vision", detail, observed_at),
+            "ollama": unknown("Mac SenseNova cloud vision" if mode == "mac" else "ollama ps via qwen-vision", detail, observed_at),
             "host": unknown_host,
             "configuration": unknown_configuration,
             "history": [],
@@ -109,15 +133,17 @@ def degraded_snapshot(detail: str) -> dict[str, Any]:
             "privacy": "不展示完整消息、图片、OpenID 或完整群号",
         },
         "logs": {"status": unknown("docker compose logs", detail, observed_at), "records": errors, "recentErrors": errors, "retention": {"tailLines": 80, "maxRecords": 80, "rawPayloadsStored": False}},
-        "operations": {"allowed": ["refresh", "open_control_ui", "view_services"], "gatewayUrl": f"http://{HOST}:{DEFAULT_GATEWAY_PORT}/", "services": [item["service"] for item in services], "note": "Phase 1 只读"},
+        "operations": {"allowed": ["refresh", "open_control_ui", "view_services"], "gatewayUrl": f"http://{os.environ.get('OPENCLAW_GATEWAY_PUBLIC_HOST') or HOST}:{DEFAULT_GATEWAY_PORT}/", "services": [item["service"] for item in services], "note": "Phase 1 只读"},
         "evidenceBoundary": ["采集器异常不代表服务正常或外部 QQ 可用", "QQ 真实收发仍未被本地页面证明"],
         "secretsRedacted": True,
     }
 
 
 class SnapshotService:
-    def __init__(self, root: Path):
-        self.builder = SnapshotBuilder(root)
+    def __init__(self, root: Path, *, deployment: str | None = None, bind_host: str = HOST):
+        self.deployment = deployment_name(deployment)
+        self.bind_host = bind_host
+        self.builder = SnapshotBuilder(root, deployment=self.deployment)
         self._cache: dict[str, Any] | None = None
         self._cache_at = 0.0
         self._lock = threading.RLock()
@@ -145,7 +171,9 @@ class SnapshotService:
             try:
                 payload = self.builder.build(list(self._history))
             except Exception as exc:  # The page must survive a collector failure.
-                payload = degraded_snapshot(public_error(str(exc), fallback="采集器异常"))
+                payload = degraded_snapshot(public_error(str(exc), fallback="采集器异常"), host=self.bind_host, deployment=self.deployment)
+            payload["console"]["bind"] = self.bind_host
+            payload["console"]["deployment"] = self.deployment
             payload["console"]["port"] = self.port
             self._history.append(self._history_sample(payload))
             payload["runtime"]["history"] = list(self._history)
@@ -192,10 +220,39 @@ class ConsoleHandler(BaseHTTPRequestHandler):
     def _not_found(self) -> None:
         self._send_json({"error": "not_found", "message": "资源不存在"}, HTTPStatus.NOT_FOUND)
 
+    def _is_authorized(self) -> bool:
+        expected = getattr(self.server, "console_auth_token", None)  # type: ignore[attr-defined]
+        if not expected:
+            return True
+        authorization = self.headers.get("Authorization", "")
+        scheme, _, value = authorization.partition(" ")
+        if scheme.lower() == "bearer" and hmac.compare_digest(value, expected):
+            return True
+        if scheme.lower() == "basic":
+            try:
+                decoded = base64.b64decode(value, validate=True).decode("utf-8")
+                _, _, basic_secret = decoded.partition(":")
+            except (ValueError, UnicodeDecodeError):
+                basic_secret = ""
+            if hmac.compare_digest(basic_secret, expected):
+                return True
+        return False
+
+    def _unauthorized(self) -> None:
+        body = json.dumps({"error": "unauthorized", "message": "需要 Operations Console 访问认证"}, ensure_ascii=False).encode("utf-8")
+        self.send_response(HTTPStatus.UNAUTHORIZED)
+        self._headers("application/json; charset=utf-8", len(body))
+        self.send_header("WWW-Authenticate", 'Basic realm="QQ Bot Operations Console", charset="UTF-8"')
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self) -> None:  # noqa: N802
+        if not self._is_authorized():
+            self._unauthorized()
+            return
         path = urlsplit(self.path).path
         if path == "/api/health":
-            self._send_json({"ok": True, "bind": HOST, "port": self.state.port, "observedAt": utc_now(), "secretsRedacted": True})
+            self._send_json({"ok": True, "bind": getattr(self.server, "console_bind_host", HOST), "port": self.state.port, "deployment": getattr(self.state, "deployment", "windows"), "authRequired": bool(getattr(self.server, "console_auth_token", None)), "observedAt": utc_now(), "secretsRedacted": True})
             return
         if path == "/api/snapshot" or path == "/api/diagnostics":
             self._send_json(self.state.snapshot())
@@ -219,6 +276,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         self._not_found()
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._is_authorized():
+            self._unauthorized()
+            return
         path = urlsplit(self.path).path
         if path != "/api/refresh":
             self._not_found()
@@ -230,30 +290,44 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         self._send_json(self.state.snapshot(force=True))
 
 
-def build_server(port: int = DEFAULT_PORT, *, state: SnapshotService | None = None, host: str = HOST) -> ThreadingHTTPServer:
-    if host != HOST:
-        raise ValueError("控制台只允许绑定 127.0.0.1")
+def build_server(
+    port: int = DEFAULT_PORT,
+    *,
+    state: SnapshotService | None = None,
+    host: str = HOST,
+    auth_token: str | None = None,
+    deployment: str | None = None,
+) -> ThreadingHTTPServer:
+    if not valid_bind_host(host):
+        raise ValueError("控制台只允许绑定 IP 地址或回环地址")
     if not 1024 <= port <= 65535:
         raise ValueError("控制台端口必须在 1024-65535 之间")
-    service = state or SnapshotService(Path(__file__).resolve().parents[1])
-    server = ThreadingHTTPServer((HOST, port), ConsoleHandler)
+    token = auth_token if auth_token is not None else os.environ.get("OPS_CONSOLE_TOKEN")
+    if host != HOST and (not token or token.startswith("replace-with-")):
+        raise ValueError("局域网监听必须配置 OPS_CONSOLE_TOKEN")
+    service = state or SnapshotService(Path(__file__).resolve().parents[1], deployment=deployment, bind_host=host)
+    server = ThreadingHTTPServer((host, port), ConsoleHandler)
     server.daemon_threads = True
     server.console_state = service  # type: ignore[attr-defined]
+    server.console_auth_token = token  # type: ignore[attr-defined]
+    server.console_bind_host = host  # type: ignore[attr-defined]
     service.port = int(server.server_address[1])
     return server
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the local-only QQ Bot Operations Console")
+    parser = argparse.ArgumentParser(description="Run the protected QQ Bot Operations Console")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--host", default=HOST)
+    parser.add_argument("--deployment", choices=("windows", "mac"), default=deployment_name())
     parser.add_argument("--open-browser", action="store_true")
     args = parser.parse_args(argv)
     try:
-        server = build_server(args.port)
+        server = build_server(args.port, host=args.host, deployment=args.deployment)
     except (OSError, ValueError) as exc:
         print(f"QQ Bot Operations Console 启动失败：{public_error(str(exc), fallback='端口不可用')}", file=sys.stderr)
         return 1
-    url = f"http://{HOST}:{server.server_address[1]}/"
+    url = f"http://{args.host}:{server.server_address[1]}/"
     print(f"QQ Bot Operations Console: {url}", flush=True)
     if args.open_browser:
         threading.Timer(0.35, lambda: webbrowser.open(url)).start()

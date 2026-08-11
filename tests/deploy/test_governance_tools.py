@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,8 @@ DEPLOY_DIR = ROOT / "deploy" / "openclaw"
 
 
 def run(*args, cwd=ROOT):
+    if args and args[0] == "python" and shutil.which("python") is None:
+        args = (sys.executable, *args[1:])
     return subprocess.run(args, cwd=cwd, check=False, capture_output=True, text=True, encoding="utf-8")
 
 

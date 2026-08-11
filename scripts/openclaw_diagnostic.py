@@ -23,11 +23,13 @@ REQUIRED_ENV = (
     "OPENCLAW_TZ",
     "QQBOT_APP_ID",
     "QQBOT_CLIENT_SECRET",
+    "SENSENOVA_API_KEY",
+    "DEEPSEEK_API_KEY",
+)
+OPTIONAL_ENV = (
     "QQBOT_ALLOWED_USER_OPENID",
     "QQBOT_ALLOWED_MEMBER_OPENID",
     "QQBOT_HOME_CHANNEL",
-    "SENSENOVA_API_KEY",
-    "DEEPSEEK_API_KEY",
 )
 PLACEHOLDER_PREFIX = "replace-with-"
 
@@ -67,27 +69,31 @@ def run_command(args: list[str], cwd: Path, timeout: int = 20) -> tuple[int, str
     return result.returncode, result.stdout
 
 
-def compose_command(compose_dir: Path, env_file: Path) -> list[str]:
-    return [
+def compose_command(compose_dir: Path, env_file: Path, deployment: str = "windows") -> list[str]:
+    files = [compose_dir / "docker-compose.mac.yml"] if deployment == "mac" else [
+        compose_dir / "docker-compose.yml",
+        compose_dir / "docker-compose.local.yml",
+    ]
+    command = [
         "docker",
         "compose",
         "--env-file",
         str(env_file),
-        "-f",
-        str(compose_dir / "docker-compose.yml"),
-        "-f",
-        str(compose_dir / "docker-compose.local.yml"),
     ]
+    for compose_file in files:
+        command.extend(["-f", str(compose_file)])
+    return command
 
 
-def probe_http(port: int) -> dict[str, Any]:
-    url = f"http://127.0.0.1:{port}/healthz"
+def probe_http(port: int, host: str = "127.0.0.1") -> dict[str, Any]:
+    probe_host = host if host not in {"0.0.0.0", "::"} else "127.0.0.1"
+    url = f"http://{probe_host}:{port}/healthz"
     try:
         with urllib.request.urlopen(url, timeout=3) as response:
             return {"reachable": True, "status": response.status}
     except urllib.error.HTTPError as error:
         return {"reachable": True, "status": error.code}
-    except (OSError, urllib.error.URLError):
+    except (OSError, urllib.error.URLError, ValueError):
         return {"reachable": False, "status": None}
 
 
@@ -115,6 +121,7 @@ def env_report(env_file: Path) -> dict[str, Any]:
     return {
         "file_present": env_file.is_file(),
         "required": checks,
+        "optional_configured": {key: configured(values.get(key)) for key in OPTIONAL_ENV},
         "all_required_configured": all(checks.values()),
         "secrets_redacted": True,
     }
@@ -130,7 +137,7 @@ def preflight(args: argparse.Namespace) -> dict[str, Any]:
 
     code, _ = run_command(["docker", "info"], compose_dir)
     report["docker"] = {"available": code == 0, "daemon_ready": code == 0}
-    command = compose_command(compose_dir, env_file)
+    command = compose_command(compose_dir, env_file, args.deployment)
     code, _ = run_command(command + ["config", "--quiet"], compose_dir)
     report["compose"] = {"config_valid": code == 0}
     if code != 0:
@@ -153,12 +160,22 @@ def health(args: argparse.Namespace) -> dict[str, Any]:
     compose_dir = args.compose_dir.resolve()
     values = parse_env(env_file)
     port = int(values.get("OPENCLAW_GATEWAY_PORT") or 18789)
+    deployment = args.deployment
+    configured_gateway_host = values.get("OPENCLAW_GATEWAY_BIND_HOST")
+    gateway_host = configured_gateway_host if configured(configured_gateway_host) else "127.0.0.1"
+    vision_status = {
+        "status": "not_applicable",
+        "detail": "Mac 使用 SenseNova 云端视觉；本地视觉服务未启用",
+        "source": "docker-compose.mac.yml",
+        "secrets_redacted": True,
+    } if deployment == "mac" else {"status": "unknown", "model_device": "unknown"}
     report: dict[str, Any] = {
         "mode": "health",
-        "gateway": {"http": probe_http(port)},
+        "deployment": deployment,
+        "gateway": {"http": probe_http(port, gateway_host)},
         "context_recovery": {"status": "unknown"},
-        "qwen_ollama": {"status": "unknown", "model_device": "unknown"},
-        "gpu": {"status": "unknown", "devices": []},
+        "qwen_ollama": vision_status,
+        "gpu": vision_status if deployment == "mac" else {"status": "unknown", "devices": []},
         "logs": {"status": "unknown", "bytes": None, "max_bytes": 64 * 1024 * 1024},
         "model_route": {"status": "unknown", "evidence": "no local watcher state"},
         "qq_delivery_verification": "not_verified_externally",
@@ -168,18 +185,19 @@ def health(args: argparse.Namespace) -> dict[str, Any]:
         report["docker"] = {"skipped": True}
         return report
 
-    command = compose_command(compose_dir, env_file)
+    command = compose_command(compose_dir, env_file, deployment)
     code, output = run_command(command + ["ps", "--all", "--format", "json"], compose_dir)
     rows = service_rows(output) if code == 0 else []
     by_service = {str(row.get("service")): row for row in rows}
     gateway = by_service.get("openclaw-gateway", {})
     recovery = by_service.get("context-recovery", {})
-    qwen = by_service.get("qwen-vision", {})
     report["gateway"]["container"] = gateway
     report["context_recovery"] = recovery or {"status": "not_found"}
-    report["qwen_ollama"]["container"] = qwen or {"status": "not_found"}
+    if deployment != "mac":
+        qwen = by_service.get("qwen-vision", {})
+        report["qwen_ollama"]["container"] = qwen or {"status": "not_found"}
 
-    if qwen:
+    if deployment != "mac" and qwen:
         code, output = run_command(command + ["exec", "-T", "qwen-vision", "ollama", "ps"], compose_dir)
         report["qwen_ollama"]["ollama_ps"] = output.strip() if code == 0 else "unavailable"
         report["qwen_ollama"]["status"] = "ready" if code == 0 else "unavailable"
@@ -233,6 +251,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("preflight", "health"), default="preflight")
     parser.add_argument("--env-file", type=Path, default=Path("deploy/openclaw/.env"))
     parser.add_argument("--compose-dir", type=Path, default=Path("deploy/openclaw"))
+    parser.add_argument("--deployment", choices=("windows", "mac"), default="windows")
     parser.add_argument("--skip-docker", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()

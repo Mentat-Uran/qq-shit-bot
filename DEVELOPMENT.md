@@ -18,6 +18,7 @@
 - 修复 CI 的重复测试矩阵，重命名遗留的检查名称，并让 CI 真正覆盖 Compose、JavaScript、PowerShell、启动脚本和部署测试。
 - 为媒体权限过滤、历史图片隔离、视频 @门控、上下文恢复、诊断信息抑制、cron 幂等注册增加行为测试，而不是只做字符串断言。
 - 增加运行态健康报告，检查 Gateway、context-recovery、Qwen/Ollama、GPU 模型设备、日志增长和模型降级状态；明确记录真实 QQ 投递仍需外部验证。
+- 完成 macOS Docker Desktop 迁移链路：Mac 专用 Compose、SenseNova 6.7 Flash-Lite 图片路由、DeepSeek 最终文本路由、Unix 运行入口、macOS 主机采集和受保护 LAN Operations Console；Windows Qwen 路径保持独立。
 - 完成镜像、插件、依赖、许可证和密钥安全审计；为可行的镜像或插件增加可复现版本约束，并决定停用的重型视觉代码是归档还是移除。
 - 同步更新 README、部署文档、测试和维护说明，保证实现、配置、运行时策略和文档一致。
 

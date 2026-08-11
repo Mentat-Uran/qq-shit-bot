@@ -28,8 +28,8 @@
         <button class="nav-item" data-section="logs"><span class="nav-index">05</span><span>日志与诊断</span></button>
       </nav>
       <div class="sidebar-bottom">
-        <div class="local-badge"><span class="pulse-dot"></span><span>仅本机访问</span></div>
-        <p>浏览器只访问本机 REST API<br>不接触 Docker socket</p>
+        <div class="local-badge"><span class="pulse-dot"></span><span id="access-badge">仅本机访问</span></div>
+        <p id="access-detail">监听地址加载中<br>浏览器不接触 Docker socket</p>
       </div>
     </aside>
 
@@ -76,7 +76,7 @@
               <div class="route-arrow">→</div>
               <div class="route-main fallback"><span class="route-label">备用模型</span><strong id="route-fallback">未采集</strong></div>
               <div class="route-meta" id="route-meta">等待模型路由证据</div>
-              <div class="ollama-signal"><span class="route-label">Ollama / 当前模型</span><strong id="ollama-model">未采集</strong><small id="ollama-source">Qwen 服务状态未采集</small></div>
+              <div class="ollama-signal"><span class="route-label" id="vision-label">本地视觉 / 当前模型</span><strong id="ollama-model">未采集</strong><small id="ollama-source">视觉模式未采集</small></div>
             </article>
           </div>
 
@@ -104,7 +104,7 @@
         </section>
 
         <section class="page-section" data-page="runtime">
-          <div class="section-intro"><p class="eyebrow accent-text">运行与资源</p><h3>资源有边界，证据有来源</h3><p>把主机 RAM、Docker 容器 RAM、GPU VRAM 和 Ollama 模型拆开观察，采集失败时保留未知态。</p></div>
+          <div class="section-intro"><p class="eyebrow accent-text">运行与资源</p><h3>资源有边界，证据有来源</h3><p>把主机 RAM、Docker 容器 RAM 和视觉模式拆开观察，采集失败时保留未知态。</p></div>
           <div class="resource-card-grid" id="runtime-resource-cards"></div>
           <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">Compose 服务</p><h3>有效服务清单</h3></div><span class="panel-tag">固定白名单</span></div><div class="service-table-wrap"><table class="service-table"><thead><tr><th>服务</th><th>运行态</th><th>健康状态</th><th>系统 RAM</th><th>数据来源</th></tr></thead><tbody id="service-table"></tbody></table></div></article>
           <article class="panel evidence-panel"><div class="panel-heading"><div><p class="eyebrow">证据层级</p><h3>数据边界</h3></div></div><div class="evidence-grid"><div><span class="evidence-number">01</span><strong>直接采集</strong><p>Compose、healthz、nvidia-smi 和 Ollama 只说明本机组件状态。</p></div><div><span class="evidence-number">02</span><strong>日志推断</strong><p>连接、错误和备用路由只保留短摘要，不保存正文或认证头。</p></div><div><span class="evidence-number">03</span><strong>外部验证</strong><p>QQ 真实消息送达不由本地控制台证明。</p></div></div></article>
