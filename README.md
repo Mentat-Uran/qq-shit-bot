@@ -7,11 +7,11 @@
 ## 功能
 
 - QQ 私聊、群聊和明确 @ 触发;网关可接收群消息，但运行时人格仍要求群聊回复以当前 @ 或直接提问为触发条件。
-- 群聊上下文按群独立维护:32 条历史窗口、收集式消息队列(上限 32 条、超出自动摘要)、120 分钟空闲自动重置、compaction safeguard 模式;`context-recovery` 守护进程在上下文溢出或模型卡死时自动重置对应群会话。
+- 群聊上下文按群独立维护:每个 @ 默认只带当前消息和最近 1 条未 @ 消息，队列使用小容量 steer 模式，60 分钟空闲自动重置；`context-recovery` 守护进程在上下文溢出或模型卡死时自动重置对应群会话。
 - 引用文本、图片、语音、文件和 QQ 小程序卡片摘要处理;小程序有标题时先搜索标题再解读,查不到时不编造正文。
-- 商汤 SenseNova `deepseek-v4-flash` 为主模型,官方 DeepSeek `deepseek-chat` 兜底;正常请求失败时由 OpenClaw 使用已配置的 fallback,不向群里发送 provider 诊断信息。
-- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是唯一启用的视觉路径。Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合方案已删除，不再构建或启动。
-- Mac 云视觉：`deploy/openclaw/docker-compose.mac.yml` 默认只启动 OpenClaw Gateway 与 `context-recovery`，不包含本地模型、GPU 或视频服务；图片模型是 `sensenova-6.7-flash-lite`，文本优先使用 SenseNova `deepseek-v4-flash`，官方 `deepseek/deepseek-chat` 仅作 fallback。
+- Windows 文字主模型是商汤 SenseNova `deepseek-v4-flash`,官方 DeepSeek `deepseek-chat` 作为 fallback；Mac 使用官方 DeepSeek `deepseek-v4-flash` API，默认思考级别为 medium。
+- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是 Windows 链路的视觉路径。Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合方案已删除，不再构建或启动。
+- Mac 云视觉：`deploy/openclaw/docker-compose.mac.yml` 默认只启动 OpenClaw Gateway 与 `context-recovery`，不包含本地模型、GPU 或视频服务；图片由商汤 `sensenova-6.7-flash-lite` 识别，再交给官方 DeepSeek `deepseek-v4-flash` 生成最终回复。
 - 关闭 OpenClaw 终端、Control UI 默认仅绑定 `127.0.0.1` 且需 token 认证;明确启用 Mac LAN 模式后，Operations Console 可绑定具体局域网 IPv4 并使用无 Token 的脱敏只读访问;`exec`/`read`/`write` 工具全局禁用;QQ 私聊和群聊 @ 默认开放，群聊回复仍受运行时触发规则限制。
 
 ## 快速开始(OpenClaw + Docker)
@@ -45,7 +45,7 @@ scripts/mac/status.sh
 scripts/mac/console.sh
 ```
 
-停止、日志和环境检查分别使用 `scripts/mac/stop.sh`、`scripts/mac/logs.sh` 和 `scripts/mac/check-env.sh`。Mac 启动只加载 `docker-compose.mac.yml`，不会启动 Windows Compose 中的本地视觉服务；运行时配置使用 `deploy/openclaw/openclaw.mac.json`。默认 Gateway 与 Operations Console 都绑定 `127.0.0.1`，需要同网段 Windows 或手机访问时运行 `scripts/mac/configure-lan-console.sh`；它会绑定具体 Mac 局域网 IPv4 并启用不带 Token 的脱敏只读控制台。不要绑定 `0.0.0.0`/`::`，也不要做公网端口转发。
+停止、日志和环境检查分别使用 `scripts/mac/stop.sh`、`scripts/mac/logs.sh` 和 `scripts/mac/check-env.sh`。Mac 启动只加载 `docker-compose.mac.yml`，不会启动 Windows Compose 中的本地视觉服务；运行时配置使用 `deploy/openclaw/openclaw.mac.json`。默认 Gateway 与 Operations Console 都绑定 `127.0.0.1`，需要同网段 Windows 或手机访问时运行 `scripts/mac/configure-lan-console.sh`；它会绑定具体 Mac 局域网 IPv4 并启用不带 Token 的脱敏只读控制台。不要绑定 `0.0.0.0`/`::`，也不要做公网端口转发。合盖运行只按 macOS 支持的 clamshell 模式处理，不由 Bot 修改系统睡眠策略。
 
 ### Windows 常用命令
 
@@ -74,10 +74,9 @@ python scripts/openclaw_diagnostic.py --mode health --deployment mac \
 
 ## 模型与额度切换
 
-- 主模型:SenseNova `deepseek-v4-flash`(`https://token.sensenova.cn/v1`)。
-- 兜底模型:官方 DeepSeek `deepseek-chat`(`https://api.deepseek.com/v1`),key 由 `DEEPSEEK_API_KEY` 环境变量提供。
-- 请求失败时由 OpenClaw 使用已配置的 DeepSeek 兜底。错误、兜底与内部诊断 payload 会被本地 `reply_payload_sending` 钩子过滤,只留在网关日志里。
-- Mac 路由：`sensenova-vision/sensenova-6.7-flash-lite` 只负责当前图片理解；文本请求遵循仓库绑定规则，优先使用 SenseNova `deepseek-v4-flash`，官方 `deepseek/deepseek-chat` 作为文本 fallback。
+- Windows 主模型:SenseNova `deepseek-v4-flash`(`https://token.sensenova.cn/v1`),官方 DeepSeek `deepseek-chat`(`https://api.deepseek.com/v1`)作为 fallback。
+- Mac 路由：`sensenova-vision/sensenova-6.7-flash-lite` 只负责当前图片理解；最终文字固定使用官方 `deepseek/deepseek-v4-flash`(`https://api.deepseek.com/v1`)，默认思考级别为 `medium`。
+- 请求失败时错误与内部诊断 payload 会被本地 `reply_payload_sending` 钩子过滤,只留在网关日志里。
 
 ## 部署架构
 
@@ -96,11 +95,11 @@ Qwen 不暴露宿主机端口;图片服务在 Compose 私有网络内访问 `qwe
 
 ## 上下文管理
 
-- 群历史窗口 `historyLimit: 32`;未 @ 的普通消息作为待处理上下文收集,不触发模型调用。
-- 消息队列 `collect` 模式,2.5s 去抖,上限 32 条,超出时摘要丢弃(`drop: summarize`)。
-- `contextTokens: 131072`(与 DeepSeek 兜底模型窗口一致,远低于 SenseNova 的 1M 窗口);compaction `safeguard` 模式,压缩后保留最近 20000 token 与最近 8 轮。
-- 群会话 120 分钟无活动自动重置;`context-recovery` 兜底处理溢出/卡死,技术细节不出现在群里。
-- 主动巡检:白天每 10 分钟、夜间每 30 分钟(Asia/Shanghai)读取待处理上下文,无补充价值时输出 `NO_REPLY`。
+- 群历史窗口 `historyLimit: 1`;未 @ 的普通消息最多保留最近 1 条，不触发模型调用。明确 QQ 引用优先，图片最多带 1 张；没有引用时只有文字明确指向上图/刚才的图才考虑最近图片。
+- 消息队列使用 `steer` 模式,700ms 去抖,上限 2 条,超出丢弃旧消息。
+- 默认 `contextTokens: 32768`，启动续话跳过重复 bootstrap；工具结果和压缩后的历史也有独立字符上限，compaction 保留最近 8000 token 与最近 2 轮。
+- 群会话 60 分钟无活动自动重置;`context-recovery` 兜底处理溢出/卡死,技术细节不出现在群里。
+- 主动巡检默认关闭；只有明确设置 `QQBOT_PROACTIVE_REVIEW_ENABLED=true` 才注册低频任务，避免后台定时扫描消耗 API。
 
 ## 开发和 Issue
 
