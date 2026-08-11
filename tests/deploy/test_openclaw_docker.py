@@ -233,8 +233,9 @@ def test_setup_requires_fallback_key_and_migrates_legacy_media_config():
     assert "skipping proactive review job registration" in setup
     assert "environment-contract.txt" in (DEPLOY_DIR / "validate-env.sh").read_text()
     assert "DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in (DEPLOY_DIR / ".env.example").read_text()
-    assert "mage-video-cli\\.mjs|nvidia-image-cli\\.mjs" in setup
-    assert "Migrating retired video/image CLI routes" in setup
+    assert "Refreshing $RUNTIME_DIR/config/openclaw.json from the versioned defaults." in setup
+    assert "cron list --all --json" in setup
+    assert "cron remove" in setup
 
 
 def test_windows_launcher_and_local_compose_overlay_are_present():
@@ -265,6 +266,8 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert (DEPLOY_DIR / "Test-OpenClawEnvironment.ps1").exists()
     assert "Test-OpenClawEnvironment.ps1" in launcher
     assert "QQBOT_HOME_CHANNEL" in launcher
+    assert "'cron', 'list'" in launcher
+    assert "'cron', 'remove'" in launcher
 
     capability_script = (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").read_text(encoding="utf-8")
     assert "media-capabilities.json" in capability_script
