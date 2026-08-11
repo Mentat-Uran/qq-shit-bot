@@ -9,8 +9,8 @@ The Compose project name is `qq-shit-bot`, matching the GitHub remote repository
 ## What it configures
 
 - OpenClaw `2026.7.1` and `@openclaw/qqbot` `2026.7.1`, pinned together.
-- SenseNova `deepseek-v4-flash` as the primary paid text-model route, with the official DeepSeek `deepseek-chat` API as the configured fallback when SenseNova fails. The DeepSeek key is read from the ignored `.env` file and is not stored in the repository.
-- The repository's `AGENTS.md` and `SOUL.md` as the OpenClaw workspace context.
+- Windows uses SenseNova `deepseek-v4-flash` as the primary paid text-model route with official DeepSeek `deepseek-chat` as fallback. The Mac route uses SenseNova only for image understanding and official DeepSeek `deepseek-v4-flash` for final text generation, with the default thinking level set to `medium`. Keys are read from the ignored `.env` file and are not stored in the repository.
+- `bot-workspace/AGENTS.md` and the repository's `SOUL.md` as the OpenClaw workspace context. The root `AGENTS.md` is reserved for repository development and is never copied to the Bot.
 - Token-authenticated Control UI published only on `127.0.0.1`.
 - OpenClaw's operator terminal disabled.
 - `exec`, `read`, and `write` agent tools denied globally and in QQ groups.
@@ -23,9 +23,9 @@ The Compose project name is `qq-shit-bot`, matching the GitHub remote repository
 - Qwen2.5-VL 7B is the only enabled image-understanding path. The NVIDIA LocateAnything-3B image-fusion fallback and the Microsoft Mage-VL video bridge have been removed from the repository and deployment path. Their model routes are absent from `openclaw.json`, and no video analysis is performed by the gateway.
 - On Windows, the Qwen2.5-VL Ollama service, OpenClaw gateway, and context-recovery sidecar are the active services in the default Compose project. Qwen has no host port and is reached at `qwen-vision:11434` on the private Compose network. Mac does not load this service.
 - QQ image messages can use a two-message workflow for mobile clients: send the image first, then send a message that @mentions the bot. A media message that already includes the bot mention is passed directly; ordinary non-media chatter remains mention-gated.
-- Group sessions have a 120-minute idle reset, and the `context-recovery` sidecar watches the gateway log for an unrecoverable context overflow or stalled agent run and resets the affected QQ group session automatically. Existing log contents are not replayed when the sidecar starts, so an old failure cannot reset a newly started session.
+- Group sessions have a 60-minute idle reset, and the `context-recovery` sidecar watches the gateway log for an unrecoverable context overflow or stalled agent run and resets the affected QQ group session automatically. Existing log contents are not replayed when the sidecar starts, so an old failure cannot reset a newly started session.
 
-The configured model route uses SenseNova as primary and official DeepSeek as fallback. The normal Windows BAT path does not run a host-side watcher; provider and fallback diagnostics remain local and are filtered before QQ delivery.
+The Windows configured model route uses SenseNova as primary and official DeepSeek as fallback. The Mac configured text route uses official DeepSeek V4 Flash directly after SenseNova image understanding, with medium thinking enabled by default. The normal Windows BAT path does not run a host-side watcher; provider and fallback diagnostics remain local and are filtered before QQ delivery.
 
 QQ group delivery is guarded separately from model failover. Successful fallback replies are delivered normally, while `isError` and `isFallbackNotice` reply payloads are cancelled before the QQ adapter sees them. This prevents provider, quota, rate-limit, busy, and internal stack details from appearing in the group without hiding the corresponding gateway logs.
 
@@ -68,7 +68,7 @@ scripts/mac/stop.sh
 
 `scripts/mac/start.sh` builds the small Mac image (applying the read-only DuckDuckGo bundle patch while the image filesystem is writable), copies `openclaw.mac.json` into the ignored runtime directory, seeds the diagnostic filter, validates the official QQ plugin, validates the config, and starts only `openclaw-gateway` plus `context-recovery`. It does not pull or start Ollama, Qwen, NVIDIA/CUDA, video, or image-fusion services. The persistent Mac volumes are named with the `qqshitbot-openclaw-mac_` prefix so they do not collide with the Windows local deployment.
 
-The Mac route is explicit: `sensenova-vision/sensenova-6.7-flash-lite` receives the current image. Text requests use SenseNova `deepseek-v4-flash` first and the official `deepseek/deepseek-chat` only as fallback after a SenseNova failure, quota response, or rate limit. `scripts/sensenova_probe.py` can send a local test image as a data URL and prints only redacted status/availability; it does not prove a QQ attachment reached the Gateway.
+The Mac route is explicit: `sensenova-vision/sensenova-6.7-flash-lite` receives the current image, and the official `deepseek/deepseek-v4-flash` API generates the final text with medium thinking. `scripts/sensenova_probe.py` sends the image to SenseNova and the resulting description to official DeepSeek, printing only redacted status/availability; it does not prove a QQ attachment reached the Gateway.
 
 The Gateway remains token-authenticated. Host publication defaults to `127.0.0.1:${OPENCLAW_GATEWAY_PORT}`. For a trusted LAN-only console, run `scripts/mac/configure-lan-console.sh`; it binds Gateway and console to the detected concrete Mac LAN IPv4, sets `OPS_CONSOLE_AUTH_MODE=none`, and exposes only fixed, redacted read-only metadata. This convenience mode is not allowed on `0.0.0.0`/`::`; do not forward either port to the public Internet. The default `token` mode remains available when stronger console authentication is desired.
 
@@ -98,7 +98,7 @@ docker compose pull
 docker compose up -d openclaw-gateway context-recovery
 ```
 
-On Windows, use Docker Desktop with WSL or Git Bash to run `setup.sh`. The Compose file itself is platform-neutral; the equivalent manual sequence is to create `runtime/config` and `runtime/workspace`, copy `openclaw.json`, `AGENTS.md`, and `SOUL.md` into them, install the plugin with the `openclaw-cli` service, validate the config, start `qwen-vision`, ensure `qwen2.5vl:7b` is present, and start `openclaw-gateway context-recovery`.
+On Windows, use Docker Desktop with WSL or Git Bash to run `setup.sh`. The Compose file itself is platform-neutral; the equivalent manual sequence is to create `runtime/config` and `runtime/workspace`, copy `openclaw.json`, `bot-workspace/AGENTS.md` as `runtime/workspace/AGENTS.md`, and `SOUL.md` into them, install the plugin with the `openclaw-cli` service, validate the config, start `qwen-vision`, ensure `qwen2.5vl:7b` is present, and start `openclaw-gateway context-recovery`.
 
 For the local Windows deployment, double-click `scripts/windows/Start-OpenClawQQBot.bat` from the repository or use the desktop shortcut copy. The pure BAT launcher resolves the project root relative to its own location, validates `.env`, installs/validates the QQ plugin, starts the lightweight Qwen image service, and starts the gateway plus recovery sidecar without invoking PowerShell. It skips the optional host-side watcher and proactive review registration.
 
@@ -143,9 +143,9 @@ The gateway and recovery sidecar should remain running for QQ replies. Only the 
 
 ## Group participation
 
-The configured mode keeps `requireMention: true` so ordinary messages are collected as pending group context without triggering one model call per message. Mentions, replies, direct messages, and the periodic proactive review can trigger a model turn. The group history window is 32 messages; each new @ message is treated as a fresh topic unless it explicitly quotes or continues the prior one. A prior image is never attached just because it was the latest image in the group.
+The configured mode keeps `requireMention: true`; each @ is an independent turn with at most one preceding group message. An explicit QQ quote is the preferred context and carries at most one actual image. A recent image is considered only when the current text clearly points to it; otherwise old media stays out of the model request. The default queue uses same-turn steering with a small cap instead of collecting long bursts. Periodic proactive review is opt-in because it otherwise spends API tokens on full-context scans.
 
-The proactive review is intentionally periodic rather than per-message: it reads the full pending context and returns `NO_REPLY` only when there is nothing useful to add. Direct mentions and replies must receive a normal answer unless a workspace safety rule blocks the request. The schedule is every 10 minutes from 08:00 through 01:50, and every 30 minutes from 02:00 through 07:30, using `Asia/Shanghai` time. Group sessions are reset after 120 minutes without activity. If a model run reaches an unrecoverable context overflow or stalls in processing, `context-recovery` calls `sessions.reset` for that group session and keeps the technical diagnostic out of QQ. To make every ordinary message an immediate model turn, edit `runtime/config/openclaw.json` and set:
+The proactive review is disabled by default because background scans spend API tokens. Set `QQBOT_PROACTIVE_REVIEW_ENABLED=true` together with `QQBOT_HOME_CHANNEL` only when this low-frequency feature is intentional; it then reviews one pending group message every 10 minutes from 08:00 through 01:50 and every 30 minutes from 02:00 through 07:30, using `Asia/Shanghai` time. Direct mentions and replies receive a normal answer unless a workspace safety rule blocks the request. Group sessions are reset after 60 minutes without activity. If a model run reaches an unrecoverable context overflow or stalls in processing, `context-recovery` calls `sessions.reset` for that group session and keeps the technical diagnostic out of QQ. To make every ordinary message an immediate model turn, edit `runtime/config/openclaw.json` and set:
 
 ```json
 "requireMention": false
@@ -179,4 +179,4 @@ The repository tests validate Compose shape, configuration, launcher wiring, env
 
 ## Updating the persona
 
-`setup.sh` copies `AGENTS.md` and `SOUL.md` only when the runtime workspace does not already contain them, so local edits are preserved. Copy the repository versions again manually when you want to adopt later persona changes.
+`setup.sh` copies `bot-workspace/AGENTS.md` and `SOUL.md` only when the runtime workspace does not already contain them, so local edits are preserved. Copy the Bot source versions again manually when you want to adopt later persona changes; the root `AGENTS.md` is never a runtime source.
