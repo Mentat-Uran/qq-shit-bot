@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in redacted probe for the Mac SenseNova -> DeepSeek media route.
+"""Opt-in redacted probe for the Mac SenseNova vision -> DeepSeek text route.
 
 The script reads the ignored deployment .env in-process and never prints keys,
 request bodies, image bytes, model responses, or QQ content. It is a provider
@@ -25,7 +25,7 @@ SENSENOVA_URL = "https://token.sensenova.cn/v1/chat/completions"
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 VISION_MODEL = "sensenova-6.7-flash-lite"
 TEXT_MODEL = "deepseek-v4-flash"
-FALLBACK_TEXT_MODEL = "deepseek-chat"
+THINKING_MODE = "enabled"
 PLACEHOLDER = "replace-with-"
 
 
@@ -63,7 +63,7 @@ def request_json(url: str, api_key: str, payload: dict[str, Any], timeout: int) 
         return 0, None
 
 
-def content_from_response(value: dict[str, Any] | None) -> str | None:
+def content_from_response(value: dict[str, Any] | None, *, allow_reasoning: bool = False) -> str | None:
     choices = value.get("choices") if isinstance(value, dict) else None
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         return None
@@ -78,12 +78,13 @@ def content_from_response(value: dict[str, Any] | None) -> str | None:
         combined = "\n".join(part for part in parts if part)
         if combined:
             return combined
-    # SenseNova 6.7 Flash-Lite may return its usable multimodal description in
-    # the provider-specific reasoning field while omitting message.content.
-    for field in ("reasoning", "reasoning_content"):
-        reasoning = message.get(field)
-        if isinstance(reasoning, str) and reasoning.strip():
-            return reasoning.strip()
+    if allow_reasoning:
+        # SenseNova 6.7 Flash-Lite may return its usable multimodal description
+        # in a provider-specific reasoning field while omitting message.content.
+        for field in ("reasoning", "reasoning_content"):
+            reasoning = message.get(field)
+            if isinstance(reasoning, str) and reasoning.strip():
+                return reasoning.strip()
     return None
 
 
@@ -101,11 +102,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--env-file", type=Path, default=Path("deploy/openclaw/.env"))
     parser.add_argument("--image", type=Path, help="local image file; bytes are sent as a data URL and never printed")
     parser.add_argument("--timeout", type=int, default=45)
-    parser.add_argument(
-        "--probe-official-fallback",
-        action="store_true",
-        help="explicitly probe the paid official DeepSeek fallback after the SenseNova route",
-    )
     args = parser.parse_args(argv)
     if args.timeout < 5 or args.timeout > 180:
         print("timeout must be between 5 and 180 seconds", file=sys.stderr)
@@ -126,34 +122,26 @@ def main(argv: list[str] | None = None) -> int:
         "max_tokens": 120,
     }
     vision_status, vision_response = request_json(SENSENOVA_URL, vision_key, vision_payload, args.timeout)
-    vision_text = content_from_response(vision_response)
+    vision_text = content_from_response(vision_response, allow_reasoning=True)
     print(f"sensenova_vision model={VISION_MODEL} requested={'yes' if args.image else 'no'} status={vision_status or 'unreachable'} content={'yes' if vision_text else 'no'}")
     if not vision_text:
         return 1
+
+    deepseek_key = values.get("DEEPSEEK_API_KEY")
+    if not configured(deepseek_key):
+        print("official_deepseek_text not run: key is missing or a placeholder (value redacted)")
+        return 2
 
     final_payload = {
         "model": TEXT_MODEL,
         "messages": [{"role": "user", "content": f"视觉识别结果：{vision_text}\n请生成一句很短的中文 QQ 回复。"}],
         "max_tokens": 80,
+        "thinking": {"type": "enabled"},
     }
-    text_status, text_response = request_json(SENSENOVA_URL, vision_key, final_payload, args.timeout)
+    text_status, text_response = request_json(DEEPSEEK_URL, deepseek_key, final_payload, args.timeout)
     final_text = content_from_response(text_response)
-    print(f"sensenova_text model={TEXT_MODEL} status={text_status or 'unreachable'} content={'yes' if final_text else 'no'}")
-    if final_text or not args.probe_official_fallback:
-        return 0 if final_text else 1
-
-    deepseek_key = values.get("DEEPSEEK_API_KEY")
-    if not configured(deepseek_key):
-        print("official_deepseek_fallback not run: key is missing or a placeholder (value redacted)")
-        return 1
-    fallback_payload = {**final_payload, "model": FALLBACK_TEXT_MODEL}
-    fallback_status, fallback_response = request_json(DEEPSEEK_URL, deepseek_key, fallback_payload, args.timeout)
-    fallback_text = content_from_response(fallback_response)
-    print(
-        f"official_deepseek_fallback model={FALLBACK_TEXT_MODEL} "
-        f"status={fallback_status or 'unreachable'} content={'yes' if fallback_text else 'no'}"
-    )
-    return 0 if fallback_text else 1
+    print(f"official_deepseek_text model={TEXT_MODEL} thinking={THINKING_MODE} status={text_status or 'unreachable'} content={'yes' if final_text else 'no'}")
+    return 0 if final_text else 1
 
 
 if __name__ == "__main__":

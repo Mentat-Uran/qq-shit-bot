@@ -6,6 +6,9 @@ import {
   filterMediaByCapability,
   filterVideoByMention,
   buildInjectedMediaPolicySource,
+  applySingleImageLimit,
+  selectSingleImage,
+  shouldUseRecentImage,
   parseMediaCapabilities,
 } from "../../deploy/openclaw/media-policy.mjs";
 
@@ -33,12 +36,69 @@ test("video requires the current group mention but direct messages can pass", ()
   assert.equal(allowHistoricalMedia({ isGroup: false, hasCurrentAttachments: false }), true);
 });
 
+test("group image selection keeps one relevant image", () => {
+  assert.equal(shouldUseRecentImage("看看上面的图"), true);
+  assert.equal(shouldUseRecentImage("今天天气不错"), false);
+  assert.deepEqual(selectSingleImage({
+    currentUrls: ["current-1", "current-2"],
+    currentTypes: ["image/jpeg", "image/png"],
+    quotedImage: { path: "quoted", contentType: "image/png" },
+    recentImage: { path: "recent", contentType: "image/png" },
+    text: "看看上面的图",
+  }), { path: "quoted", contentType: "image/png", source: "quote" });
+  assert.deepEqual(selectSingleImage({
+    currentUrls: ["current-1", "current-2"],
+    currentTypes: ["image/jpeg", "image/png"],
+  }), { path: "current-1", contentType: "image/jpeg", source: "current" });
+  assert.deepEqual(applySingleImageLimit({
+    imageUrls: [],
+    imageMediaTypes: [],
+  }, {
+    quotedImage: { path: "quoted", contentType: "image/png" },
+    recentImage: { path: "recent", contentType: "image/png" },
+    text: "看看上面的图",
+  }).imageUrls, ["quoted"]);
+  assert.deepEqual(applySingleImageLimit({
+    imageUrls: [],
+    imageMediaTypes: [],
+  }, {
+    recentImage: { path: "recent", contentType: "image/png" },
+    text: "随便说说",
+  }).imageUrls, []);
+});
+
 test("the patcher's injected runtime policy follows the same fail-closed behavior", () => {
   const source = buildInjectedMediaPolicySource("/tmp/media-capabilities.json");
-  const runtime = vm.runInNewContext(`${source}; ({ filterMediaByCapability, filterVideoByMention })`, {
+  const runtime = vm.runInNewContext(`${source}; ({ filterMediaByCapability, filterVideoByMention, applySingleImageLimit, selectRecentGroupImage })`, {
     fs$1: { readFileSync: () => '{"image":true,"video":false}' },
   });
   assert.deepEqual(Array.from(runtime.filterMediaByCapability(processed).imageUrls), ["current-image"]);
   assert.deepEqual(Array.from(runtime.filterMediaByCapability(processed).videoAttachmentPaths), []);
   assert.deepEqual(Array.from(runtime.filterVideoByMention(processed, false).videoAttachmentPaths), []);
+  assert.deepEqual(Array.from(runtime.applySingleImageLimit({
+    imageUrls: [],
+    imageMediaTypes: [],
+  }, {
+    recentImage: { path: "recent" },
+    text: "看上面的图",
+  }).imageUrls), ["recent"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.selectRecentGroupImage([
+    { attachments: [{ type: "image", localPath: "recent-group-image" }] },
+  ], "看上面的图"))), { path: "recent-group-image", contentType: "image/png" });
+
+  const disabledRuntime = vm.runInNewContext(`${source}; ({ mergeSingleQuotedImage, imageMediaFromAttachments })`, {
+    fs$1: { readFileSync: () => '{"image":false,"video":false}' },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(disabledRuntime.mergeSingleQuotedImage({ imageUrls: [], imageMediaTypes: [] }, {
+    media: [{ path: "quoted-image", contentType: "image/png" }],
+  }, null, "看引用图"))), {
+    imageUrls: [],
+    imageMediaTypes: [],
+    videoAttachmentPaths: [],
+    videoAttachmentTypes: [],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(disabledRuntime.imageMediaFromAttachments([
+    { type: "file", localPath: "not-an-image" },
+    { type: "image", localPath: "actual-image" },
+  ]))), [{ path: "actual-image", contentType: "image/png" }]);
 });

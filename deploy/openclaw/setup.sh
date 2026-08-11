@@ -90,19 +90,20 @@ fi
 mkdir -p "$RUNTIME_DIR/config" "$RUNTIME_DIR/workspace"
 chmod 700 "$RUNTIME_DIR" "$RUNTIME_DIR/config" "$RUNTIME_DIR/workspace"
 
+# The checked-in config is the versioned source of truth. Refresh it on every
+# setup so upgrades receive new context/media defaults instead of keeping an
+# older runtime config forever. Local overrides belong in .env or a tracked
+# config change, not in the persistent bind mount.
 if [ -f "$RUNTIME_DIR/config/openclaw.json" ]; then
-    if grep -qE 'mage-video-cli\.mjs|nvidia-image-cli\.mjs' "$RUNTIME_DIR/config/openclaw.json"; then
-        echo "Migrating retired video/image CLI routes out of $RUNTIME_DIR/config/openclaw.json." >&2
-        cp "$SCRIPT_DIR/openclaw.json" "$RUNTIME_DIR/config/openclaw.json"
-    fi
-else
-    cp "$SCRIPT_DIR/openclaw.json" "$RUNTIME_DIR/config/openclaw.json"
+    echo "Refreshing $RUNTIME_DIR/config/openclaw.json from the versioned defaults." >&2
 fi
-for context_file in AGENTS.md SOUL.md; do
-    if [ ! -f "$RUNTIME_DIR/workspace/$context_file" ]; then
-        cp "$REPO_ROOT/$context_file" "$RUNTIME_DIR/workspace/$context_file"
-    fi
-done
+cp "$SCRIPT_DIR/openclaw.json" "$RUNTIME_DIR/config/openclaw.json"
+if [ ! -f "$RUNTIME_DIR/workspace/AGENTS.md" ]; then
+    cp "$SCRIPT_DIR/bot-workspace/AGENTS.md" "$RUNTIME_DIR/workspace/AGENTS.md"
+fi
+if [ ! -f "$RUNTIME_DIR/workspace/SOUL.md" ]; then
+    cp "$REPO_ROOT/SOUL.md" "$RUNTIME_DIR/workspace/SOUL.md"
+fi
 chmod 600 "$RUNTIME_DIR/config/openclaw.json" "$RUNTIME_DIR/workspace/AGENTS.md" "$RUNTIME_DIR/workspace/SOUL.md"
 
 cd "$SCRIPT_DIR"
@@ -165,11 +166,48 @@ register_proactive_review() {
     return 1
 }
 
-register_proactive_review \
-    qqbot-proactive-review '*/10 8-23,0-1 * * *' \
-    'Review collected QQ group context every 10 minutes during daytime.'
-register_proactive_review \
-    qqbot-proactive-review-night '*/30 2-7 * * *' \
-    'Review collected QQ group context every 30 minutes overnight.'
+remove_proactive_review_jobs() {
+    jobs_json=''
+    for attempt in 1 2 3 4; do
+        if jobs_json=$(compose exec -T openclaw-gateway node dist/index.js cron list --all --json 2>/dev/null); then
+            break
+        fi
+        jobs_json=''
+        sleep 5
+    done
+    if [ -z "$jobs_json" ]; then
+        echo "Unable to inspect existing proactive review jobs while the feature is disabled." >&2
+        return 1
+    fi
+
+    job_ids=$(printf '%s' "$jobs_json" | compose exec -T openclaw-gateway node -e '
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  const value = JSON.parse(input);
+  const jobs = Array.isArray(value) ? value : (value.jobs || value.items || []);
+  const keys = new Set(["qqbot-proactive-review", "qqbot-proactive-review-night"]);
+  for (const job of jobs) if (keys.has(job?.declarationKey) && job?.id) console.log(job.id);
+});
+')
+    for job_id in $job_ids; do
+        [ -n "$job_id" ] || continue
+        echo "Removing disabled proactive review job: $job_id" >&2
+        compose exec -T openclaw-gateway node dist/index.js cron remove "$job_id"
+    done
+}
+
+if [ "$(env_value QQBOT_PROACTIVE_REVIEW_ENABLED)" = "true" ]; then
+    register_proactive_review \
+        qqbot-proactive-review '*/10 8-23,0-1 * * *' \
+        'Review one pending QQ group message every 10 minutes during daytime.'
+    register_proactive_review \
+        qqbot-proactive-review-night '*/30 2-7 * * *' \
+        'Review one pending QQ group message every 30 minutes overnight.'
+else
+    remove_proactive_review_jobs
+    echo "QQBOT_PROACTIVE_REVIEW_ENABLED is not true; skipping proactive review job registration."
+fi
 
 printf '\nOpenClaw QQ Bot is running at http://127.0.0.1:%s\n' "$(env_value OPENCLAW_GATEWAY_PORT)"

@@ -1,6 +1,6 @@
 # Repository Development Workflow
 
-本文件只适用于 Codex 的仓库开发窗口，不属于 QQ 机器人运行时人格。`AGENTS.md` 只保留机器人运行规则，不要把本文件复制到 OpenClaw workspace。
+本文件只适用于 Codex 的仓库开发窗口，不属于 QQ 机器人运行时人格。根目录 `AGENTS.md` 只保留工作目录开发规则；Bot 运行时使用 `deploy/openclaw/bot-workspace/AGENTS.md` 与 `SOUL.md`，不要把本文件复制到 OpenClaw workspace。
 
 ## 开发规范
 

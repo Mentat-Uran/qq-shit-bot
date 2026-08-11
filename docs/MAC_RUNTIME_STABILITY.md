@@ -31,7 +31,7 @@ scripts/mac/uninstall-launch-agent.sh
 
 MacBook 合盖后通常进入睡眠，Docker Desktop 的 Linux VM、Gateway、context-recovery 和控制台都会暂停。`restart: unless-stopped` 只能处理容器退出或 Docker daemon 重启，不能在宿主机睡眠期间执行任务。
 
-需要合盖运行时，使用 macOS 支持的 clamshell 模式：连接 AC 电源、外接显示器和外接输入设备，并从另一台设备确认 Mac 仍保持唤醒。不要把 `caffeinate` 当成合盖运行保证；它只能在进程和电源策略允许时阻止部分空闲睡眠。需要无人值守且不依赖登录会话的长期运行，应使用 Mac mini、服务器或其他常开主机。
+不要通过软件绕过合盖睡眠。需要合盖运行时，只使用 macOS 支持的 clamshell 模式：连接 AC 电源、外接显示器和外接输入设备，并确认 Mac 仍保持唤醒。不要把 `caffeinate` 当成合盖运行保证；持续高负载应使用常开主机。
 
 Docker Desktop 中启用 “Start Docker Desktop when you sign in”，并为项目保留足够的 Docker Desktop 磁盘空间。首次镜像下载、运行时状态、Gateway 日志和未来升级都占用磁盘；SenseNova 云视觉不会在 Mac 上下载 Qwen/Ollama 模型权重。建议至少保留 8 GB 可用磁盘用于镜像与日志，实际需求以 Docker Desktop 的镜像大小和日志增长为准。
 

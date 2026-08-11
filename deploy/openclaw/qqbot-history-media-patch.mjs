@@ -7,6 +7,7 @@ const MEDIA_CAPABILITY_MARKER = "/* qqbot-media-capabilities-v1 */";
 const VIDEO_MENTION_GATE_MARKER = "/* qqbot-video-mention-gate-v2 */";
 const LEGACY_VIDEO_MENTION_GATE_MARKER = "/* qqbot-video-mention-gate-v1 */";
 const HISTORICAL_MEDIA_DISABLED_MARKER = "/* qqbot-historical-media-disabled-v2 */";
+const QUOTE_IMAGE_CONTEXT_MARKER = "/* qqbot-single-image-context-v1 */";
 const LEGACY_MARKER_REPLACEMENTS = [
   ["/* hermes-qq-history-media-v1 */", PATCH_MARKER],
   ["/* hermes-qq-media-capabilities-v1 */", MEDIA_CAPABILITY_MARKER],
@@ -102,6 +103,13 @@ ${VIDEO_MENTION_GATE_MARKER}
   source = source.replace(existingVideoGateCall, "\n");
   if (!source.includes(MEDIA_CAPABILITY_MARKER)) {
     source = source.replace(`${PATCH_MARKER}\n`, `${helper}${PATCH_MARKER}\n`);
+  } else if (!source.includes("function mergeSingleQuotedImage(processed")) {
+    const helperStart = source.indexOf("function readMediaCapabilities() {");
+    const markerIndex = source.indexOf(MEDIA_CAPABILITY_MARKER, helperStart);
+    if (helperStart < 0 || markerIndex < 0) {
+      throw new Error("QQ media capability patch found an unversioned helper block");
+    }
+    source = `${source.slice(0, helperStart)}${buildInjectedMediaPolicySource(MEDIA_CAPABILITIES_PATH)}${source.slice(markerIndex)}`;
   }
   if (!source.includes("function filterVideoByMention(processed, allowVideo)")) {
     source = source.replace(`${MEDIA_CAPABILITY_MARKER}\n`, `${helper}`);
@@ -136,6 +144,20 @@ ${VIDEO_MENTION_GATE_MARKER}
       );
     }
   }
+  if (!source.includes("processed = mergeSingleQuotedImage(processed")) {
+    const replyQuoteLine = `\tconst replyTo = await resolveQuote(event, deps);`;
+    source = replaceOnce(
+      source,
+      "single-image-context",
+      replyQuoteLine,
+      `${replyQuoteLine}
+\tconst recentImage = event.type === "group" && event.groupOpenid && deps.groupHistories
+\t\t? selectRecentGroupImage(deps.groupHistories.get(event.groupOpenid), userContent)
+\t\t: null;
+\tprocessed = mergeSingleQuotedImage(processed, replyTo, recentImage, userContent);`,
+    );
+  }
+  source = addQuoteImageContext(source);
   return source;
 }
 
@@ -232,3 +254,63 @@ const bundle = findGatewayBundle();
 if (!bundle) throw new Error("QQ history-media patch: installed @openclaw/qqbot gateway bundle was not found");
 const changed = patchBundle(bundle);
 console.log(`${changed ? "Applied" : "Already applied"} QQ media attachment safety patch: ${bundle}`);
+function addQuoteImageContext(source) {
+  if (source.includes(QUOTE_IMAGE_CONTEXT_MARKER)) return source;
+  source = replaceOnce(
+    source,
+    "quote-resolve-marker",
+    "async function resolveQuote(event, deps) {",
+    `${QUOTE_IMAGE_CONTEXT_MARKER}\nasync function resolveQuote(event, deps) {`,
+  );
+  source = replaceOnce(
+    source,
+    "ref-cache-image-media",
+    `\t\treturn {
+\t\t\tid: event.refMsgIdx,
+\t\t\tbody: formatRefEntryForAgent(refEntry),
+\t\t\tsender: refEntry.senderName ?? refEntry.senderId,
+\t\t\tisQuote: true
+\t\t};`,
+    `\t\treturn {
+\t\t\tid: event.refMsgIdx,
+\t\t\tbody: formatRefEntryForAgent(refEntry),
+\t\t\tsender: refEntry.senderName ?? refEntry.senderId,
+\t\t\tisQuote: true,
+\t\t\tmedia: imageMediaFromAttachments(refEntry.attachments)
+\t\t};`,
+  );
+  source = replaceOnce(
+    source,
+    "quote-processed-state",
+    `\t\tconst attachmentProcessor = {`,
+    `\t\tlet quotedProcessed;
+\t\tconst attachmentProcessor = {`,
+  );
+  source = replaceOnce(
+    source,
+    "quote-processed-capture",
+    `\t\t\t\t});
+\t\t\t\treturn {
+\t\t\t\t\tattachmentInfo: result.attachmentInfo,`,
+    `\t\t\t\t});
+\t\t\t\tquotedProcessed = result;
+\t\t\t\treturn {
+\t\t\t\t\tattachmentInfo: result.attachmentInfo,`,
+  );
+  source = replaceOnce(
+    source,
+    "quote-cache-miss-image-media",
+    `\t\treturn {
+\t\t\tid: event.refMsgIdx,
+\t\t\tbody: refBody || void 0,
+\t\t\tisQuote: true
+\t\t};`,
+    `\t\treturn {
+\t\t\tid: event.refMsgIdx,
+\t\t\tbody: refBody || void 0,
+\t\t\tisQuote: true,
+\t\t\tmedia: imageMediaFromAttachments(refElement.attachments, quotedProcessed)
+\t\t};`,
+  );
+  return source;
+}
