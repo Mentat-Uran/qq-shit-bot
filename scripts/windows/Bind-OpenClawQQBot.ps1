@@ -18,6 +18,7 @@ $runtimeDir = Join-Path $scriptDir 'runtime'
 $configDir = Join-Path $runtimeDir 'config'
 $workspaceDir = Join-Path $runtimeDir 'workspace'
 $sourceConfig = Join-Path $scriptDir 'openclaw.json'
+$sourceBotAgents = Join-Path $scriptDir 'bot-workspace\AGENTS.md'
 $runtimeConfigPath = Join-Path $configDir 'openclaw.json'
 $composeFiles = @(
     '-f', (Join-Path $scriptDir 'docker-compose.yml'),
@@ -154,7 +155,7 @@ function Ensure-RuntimeFiles {
     New-Item -ItemType Directory -Force -Path $configDir | Out-Null
     New-Item -ItemType Directory -Force -Path $workspaceDir | Out-Null
     Copy-Item -LiteralPath $sourceConfig -Destination $runtimeConfigPath -Force
-    Copy-Item -LiteralPath (Join-Path $projectDir 'AGENTS.md') -Destination (Join-Path $workspaceDir 'AGENTS.md') -Force
+    Copy-Item -LiteralPath $sourceBotAgents -Destination (Join-Path $workspaceDir 'AGENTS.md') -Force
     Copy-Item -LiteralPath (Join-Path $projectDir 'SOUL.md') -Destination (Join-Path $workspaceDir 'SOUL.md') -Force
 }
 
