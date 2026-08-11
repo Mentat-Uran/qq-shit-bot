@@ -14,13 +14,13 @@
 | 日志链路 | `scripts/mac/logs.sh 80` | 已验证：跟随日志入口可启动；未保留完整日志 |
 | macOS CPU/RAM/磁盘采集 | Operations Console `/api/snapshot` | 已验证：CPU/RAM 可采集；输出只保留状态和来源 |
 
-## SenseNova -> DeepSeek
+## SenseNova 视觉 -> 官方 DeepSeek 文字
 
 | 项目 | 命令/证据 | 结果 |
 | --- | --- | --- |
-| SenseNova 文本/视觉探针 | `python3 scripts/sensenova_probe.py --env-file deploy/openclaw/.env --image <本地测试图片>` | 已验证：图片请求 HTTP 200、视觉内容可用 |
-| 图片模型 | `sensenova-6.7-flash-lite` | 已验证：在线图片请求成功 |
-| 最终文本模型 | `sensenova-token/deepseek-v4-flash` | 已验证：SenseNova 文本请求 HTTP 200、最终内容可用；官方 `deepseek/deepseek-chat` 未在本次默认探针中调用 |
+| SenseNova 视觉 + 官方 DeepSeek 文字探针 | `python3 scripts/sensenova_probe.py --env-file deploy/openclaw/.env --image <本地测试图片>` | 待重新验证：路由已切换为图片请求走商汤、最终文字请求走官方 DeepSeek |
+| 图片模型 | `sensenova-6.7-flash-lite` | 待重新验证：需重新执行在线图片请求 |
+| 最终文本模型 | `deepseek/deepseek-v4-flash`，思考 `medium` | 待重新验证：需重新执行官方 DeepSeek 文本请求 |
 | OpenClaw Gateway 图片入口 | 本机 `/v1/chat/completions` 图片请求 | 未验证：当前 Mac 配置未启用该 HTTP 入口，返回 404；不代表 QQ 插件路径失败 |
 | 视觉失败降级 | 记录短回复/无诊断泄露行为 | 未验证 |
 | QQ 实际图片附件进入视觉模型 | 真实 QQ 事件与脱敏 Gateway 证据 | 未验证 |
