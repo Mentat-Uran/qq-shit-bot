@@ -1,0 +1,11 @@
+ARG OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.7.1
+FROM ${OPENCLAW_IMAGE}
+
+USER root
+# The Mac gateway runs as the logged-in macOS user's UID/GID so its bind
+# mounts remain usable on the host. Apply the read-only image-bundle patch at
+# build time while the image filesystem is still writable; runtime startup can
+# then keep the gateway unprivileged.
+COPY web-search-patch.mjs /tmp/qqbot-web-search-patch.mjs
+RUN node /tmp/qqbot-web-search-patch.mjs && rm /tmp/qqbot-web-search-patch.mjs
+USER node

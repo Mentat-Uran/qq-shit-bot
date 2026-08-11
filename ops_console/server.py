@@ -8,6 +8,7 @@ import hmac
 import ipaddress
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -20,7 +21,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .collectors import DEFAULT_GATEWAY_PORT, MAX_HISTORY_SAMPLES, SnapshotBuilder
-from .models import unknown, utc_now
+from .models import format_host_for_url, unknown, utc_now
 from .redaction import public_error
 
 
@@ -47,6 +48,27 @@ def valid_bind_host(host: str) -> bool:
     return True
 
 
+class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
+def server_class_for_host(host: str) -> type[ThreadingHTTPServer]:
+    return IPv6ThreadingHTTPServer if ":" in host else ThreadingHTTPServer
+
+
+def normalize_console_token(token: str | None) -> str | None:
+    if not token or token.startswith("replace-with-"):
+        return None
+    return token
+
+
+def normalize_console_auth_mode(mode: str | None) -> str:
+    normalized = (mode or "token").strip().lower()
+    if normalized not in {"token", "none"}:
+        raise ValueError("OPS_CONSOLE_AUTH_MODE must be token or none")
+    return normalized
+
+
 def _empty_services(observed_at: str, deployment: str = "windows") -> list[dict[str, Any]]:
     return [
         {
@@ -65,6 +87,7 @@ def _empty_services(observed_at: str, deployment: str = "windows") -> list[dict[
 def degraded_snapshot(detail: str, *, host: str = HOST, deployment: str | None = None) -> dict[str, Any]:
     observed_at = utc_now()
     mode = deployment_name(deployment)
+    auth_mode = normalize_console_auth_mode(os.environ.get("OPS_CONSOLE_AUTH_MODE"))
     services = _empty_services(observed_at, mode)
     unknown_host = {
         "cpu": unknown("host CPU", detail, observed_at),
@@ -85,7 +108,7 @@ def degraded_snapshot(detail: str, *, host: str = HOST, deployment: str | None =
         "schemaVersion": "qqbot-ops/v1",
         "deployment": mode,
         "observedAt": observed_at,
-        "console": {"status": "degraded", "detail": detail, "bind": host, "port": None, "deployment": mode, "source": "local console snapshot", "confidence": "direct"},
+        "console": {"status": "degraded", "detail": detail, "bind": host, "port": None, "deployment": mode, "authRequired": auth_mode == "token" and bool(normalize_console_token(os.environ.get("OPS_CONSOLE_TOKEN"))), "authMode": auth_mode, "source": "local console snapshot", "confidence": "direct"},
         "dashboard": {
             "status": "degraded",
             "detail": detail,
@@ -133,7 +156,7 @@ def degraded_snapshot(detail: str, *, host: str = HOST, deployment: str | None =
             "privacy": "不展示完整消息、图片、OpenID 或完整群号",
         },
         "logs": {"status": unknown("docker compose logs", detail, observed_at), "records": errors, "recentErrors": errors, "retention": {"tailLines": 80, "maxRecords": 80, "rawPayloadsStored": False}},
-        "operations": {"allowed": ["refresh", "open_control_ui", "view_services"], "gatewayUrl": f"http://{os.environ.get('OPENCLAW_GATEWAY_PUBLIC_HOST') or HOST}:{DEFAULT_GATEWAY_PORT}/", "services": [item["service"] for item in services], "note": "Phase 1 只读"},
+        "operations": {"allowed": ["refresh", "open_control_ui", "view_services"], "gatewayUrl": f"http://{format_host_for_url(os.environ.get('OPENCLAW_GATEWAY_PUBLIC_HOST') or HOST)}:{DEFAULT_GATEWAY_PORT}/", "services": [item["service"] for item in services], "note": "Phase 1 只读"},
         "evidenceBoundary": ["采集器异常不代表服务正常或外部 QQ 可用", "QQ 真实收发仍未被本地页面证明"],
         "secretsRedacted": True,
     }
@@ -175,6 +198,9 @@ class SnapshotService:
             payload["console"]["bind"] = self.bind_host
             payload["console"]["deployment"] = self.deployment
             payload["console"]["port"] = self.port
+            auth_mode = normalize_console_auth_mode(os.environ.get("OPS_CONSOLE_AUTH_MODE"))
+            payload["console"]["authMode"] = auth_mode
+            payload["console"]["authRequired"] = auth_mode == "token" and bool(normalize_console_token(os.environ.get("OPS_CONSOLE_TOKEN")))
             self._history.append(self._history_sample(payload))
             payload["runtime"]["history"] = list(self._history)
             self._cache = payload
@@ -252,7 +278,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             return
         path = urlsplit(self.path).path
         if path == "/api/health":
-            self._send_json({"ok": True, "bind": getattr(self.server, "console_bind_host", HOST), "port": self.state.port, "deployment": getattr(self.state, "deployment", "windows"), "authRequired": bool(getattr(self.server, "console_auth_token", None)), "observedAt": utc_now(), "secretsRedacted": True})
+            self._send_json({"ok": True, "bind": getattr(self.server, "console_bind_host", HOST), "port": self.state.port, "deployment": getattr(self.state, "deployment", "windows"), "authRequired": bool(getattr(self.server, "console_auth_token", None)), "authMode": getattr(self.server, "console_auth_mode", "token"), "observedAt": utc_now(), "secretsRedacted": True})
             return
         if path == "/api/snapshot" or path == "/api/diagnostics":
             self._send_json(self.state.snapshot())
@@ -302,14 +328,20 @@ def build_server(
         raise ValueError("控制台只允许绑定 IP 地址或回环地址")
     if not 1024 <= port <= 65535:
         raise ValueError("控制台端口必须在 1024-65535 之间")
-    token = auth_token if auth_token is not None else os.environ.get("OPS_CONSOLE_TOKEN")
-    if host != HOST and (not token or token.startswith("replace-with-")):
+    token = normalize_console_token(auth_token if auth_token is not None else os.environ.get("OPS_CONSOLE_TOKEN"))
+    auth_mode = normalize_console_auth_mode(os.environ.get("OPS_CONSOLE_AUTH_MODE"))
+    if host != HOST and auth_mode == "none" and host in {"0.0.0.0", "::"}:
+        raise ValueError("无 Token 局域网监听必须绑定具体局域网 IP")
+    if host != HOST and auth_mode == "token" and not token:
         raise ValueError("局域网监听必须配置 OPS_CONSOLE_TOKEN")
+    if auth_mode == "none":
+        token = None
     service = state or SnapshotService(Path(__file__).resolve().parents[1], deployment=deployment, bind_host=host)
-    server = ThreadingHTTPServer((host, port), ConsoleHandler)
+    server = server_class_for_host(host)((host, port), ConsoleHandler)
     server.daemon_threads = True
     server.console_state = service  # type: ignore[attr-defined]
     server.console_auth_token = token  # type: ignore[attr-defined]
+    server.console_auth_mode = auth_mode  # type: ignore[attr-defined]
     server.console_bind_host = host  # type: ignore[attr-defined]
     service.port = int(server.server_address[1])
     return server
@@ -327,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as exc:
         print(f"QQ Bot Operations Console 启动失败：{public_error(str(exc), fallback='端口不可用')}", file=sys.stderr)
         return 1
-    url = f"http://{args.host}:{server.server_address[1]}/"
+    url = f"http://{format_host_for_url(args.host)}:{server.server_address[1]}/"
     print(f"QQ Bot Operations Console: {url}", flush=True)
     if args.open_browser:
         threading.Timer(0.35, lambda: webbrowser.open(url)).start()

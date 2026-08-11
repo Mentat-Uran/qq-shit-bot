@@ -106,7 +106,8 @@ jobs:
         run: |
           sh -n deploy/openclaw/setup.sh
           sh -n deploy/openclaw/validate-env.sh
-          sh -n deploy/openclaw/validate-mac-env.sh scripts/mac/*.sh
+          for file in scripts/mac/*.sh; do sh -n "$file"; done
+          sh -n deploy/openclaw/validate-mac-env.sh
           sh deploy/openclaw/validate-env.sh --env-file deploy/openclaw/.env.example --diagnose --allow-placeholders
           sh deploy/openclaw/validate-mac-env.sh --env-file deploy/openclaw/.env.example --allow-placeholders
           python scripts/openclaw_diagnostic.py --mode preflight --skip-docker --pretty

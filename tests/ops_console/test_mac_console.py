@@ -73,3 +73,13 @@ def test_lan_console_requires_auth_and_accepts_basic_auth():
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_explicit_no_token_mode_is_available(monkeypatch):
+    monkeypatch.setenv("OPS_CONSOLE_AUTH_MODE", "none")
+    server = build_server(free_port(), state=FakeState(), host="127.0.0.1", deployment="mac")
+    try:
+        assert server.console_auth_token is None
+        assert server.console_auth_mode == "none"
+    finally:
+        server.server_close()

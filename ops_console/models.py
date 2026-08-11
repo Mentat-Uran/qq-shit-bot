@@ -6,6 +6,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+def format_host_for_url(host: str) -> str:
+    """Format an IPv6 literal for an HTTP URL without changing hostnames."""
+
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]"
+    return host
+
+
 def utc_now() -> str:
     """Return an ISO-8601 UTC timestamp suitable for API responses."""
 

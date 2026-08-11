@@ -4,6 +4,12 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$SCRIPT_DIR/lib.sh"
 
+# Compose interpolation uses the shell environment before values from .env.
+# Use the logged-in macOS user's IDs so 0700/0600 bind mounts remain readable.
+OPENCLAW_UID=$(id -u)
+OPENCLAW_GID=$(id -g)
+export OPENCLAW_UID OPENCLAW_GID
+
 sh "$DEPLOY_DIR/validate-mac-env.sh" --env-file "$ENV_FILE"
 mkdir -p "$DEPLOY_DIR/runtime/config" "$DEPLOY_DIR/runtime/workspace"
 chmod 700 "$DEPLOY_DIR/runtime" "$DEPLOY_DIR/runtime/config" "$DEPLOY_DIR/runtime/workspace"
@@ -14,7 +20,9 @@ chmod 600 "$DEPLOY_DIR/runtime/config/openclaw.json" "$DEPLOY_DIR/runtime/worksp
 printf '%s\n' '{"image":true,"video":false}' > "$DEPLOY_DIR/runtime/config/media-capabilities.json"
 chmod 600 "$DEPLOY_DIR/runtime/config/media-capabilities.json"
 
-compose --profile cli pull openclaw-gateway openclaw-cli
+# Build the small Mac image once so its read-only web-search bundle patch is
+# applied as root; the long-running gateway still uses the current macOS UID.
+compose --profile cli build --pull openclaw-gateway openclaw-cli
 compose run --rm --no-deps qq-diagnostic-filter-init
 
 if ! compose --profile cli run --rm --no-deps openclaw-cli plugins inspect qqbot --json >/dev/null 2>&1; then

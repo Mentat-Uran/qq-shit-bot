@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .models import evidence, unknown, utc_now
+from .models import evidence, format_host_for_url, unknown, utc_now
 from .redaction import public_error
 
 
@@ -1090,7 +1090,7 @@ class SnapshotBuilder:
             },
             "operations": {
                 "allowed": ["refresh", "open_control_ui", "view_services"],
-                "gatewayUrl": f"http://{runtime.get('gatewayHost') or '127.0.0.1'}:{runtime['gatewayPort']}/",
+                "gatewayUrl": f"http://{format_host_for_url(runtime.get('gatewayHost') or '127.0.0.1')}:{runtime['gatewayPort']}/",
                 "services": [item["service"] for item in runtime["services"]],
                 "note": "Phase 1 只读；不提供任意命令、Docker socket、清理缓存或高风险重启",
             },

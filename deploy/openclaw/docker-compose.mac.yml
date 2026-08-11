@@ -1,7 +1,12 @@
 name: qq-shit-bot
 
 x-openclaw-common: &openclaw-common
-  image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
+  image: ${OPENCLAW_MAC_IMAGE:-qq-shit-bot-openclaw-mac:2026.7.1}
+  build:
+    context: .
+    dockerfile: Dockerfile.mac
+    args:
+      OPENCLAW_IMAGE: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
   env_file:
     - path: .env
       required: true
@@ -33,7 +38,7 @@ x-openclaw-common: &openclaw-common
 
 services:
   qq-diagnostic-filter-init:
-    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
+    image: ${OPENCLAW_MAC_IMAGE:-qq-shit-bot-openclaw-mac:2026.7.1}
     user: "0:0"
     volumes:
       - qq-diagnostic-filter-mac:/opt/openclaw-local
@@ -44,12 +49,11 @@ services:
       - ./qqbot-history-media-patch.mjs:/seed/qqbot-history-media-patch.mjs:ro
       - ./media-policy.mjs:/seed/media-policy.mjs:ro
       - ./diagnostic-policy.mjs:/seed/diagnostic-policy.mjs:ro
-      - ./web-search-patch.mjs:/seed/web-search-patch.mjs:ro
       - ./context-recovery.mjs:/seed/context-recovery.mjs:ro
       - ./context-recovery-core.mjs:/seed/context-recovery-core.mjs:ro
     entrypoint: ["sh", "-c"]
     command:
-      - "mkdir -p /tmp/openclaw /home/node/.openclaw/state && chown ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /tmp/openclaw && chown -R ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /home/node/.openclaw/state && cp /seed/qq-diagnostic-filter.mjs /opt/openclaw-local/qq-diagnostic-filter.mjs && cp /seed/openclaw.plugin.json /opt/openclaw-local/openclaw.plugin.json && cp /seed/qqbot-history-media-patch.mjs /opt/openclaw-local/qqbot-history-media-patch.mjs && cp /seed/media-policy.mjs /opt/openclaw-local/media-policy.mjs && cp /seed/diagnostic-policy.mjs /opt/openclaw-local/diagnostic-policy.mjs && cp /seed/web-search-patch.mjs /opt/openclaw-local/web-search-patch.mjs && cp /seed/context-recovery.mjs /opt/openclaw-local/context-recovery.mjs && cp /seed/context-recovery-core.mjs /opt/openclaw-local/context-recovery-core.mjs && chmod 0644 /opt/openclaw-local/qq-diagnostic-filter.mjs /opt/openclaw-local/openclaw.plugin.json /opt/openclaw-local/qqbot-history-media-patch.mjs /opt/openclaw-local/media-policy.mjs /opt/openclaw-local/diagnostic-policy.mjs /opt/openclaw-local/web-search-patch.mjs /opt/openclaw-local/context-recovery.mjs /opt/openclaw-local/context-recovery-core.mjs"
+      - "mkdir -p /tmp/openclaw /home/node/.openclaw/state && chown ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /tmp/openclaw && chown -R ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /home/node/.openclaw/state && cp /seed/qq-diagnostic-filter.mjs /opt/openclaw-local/qq-diagnostic-filter.mjs && cp /seed/openclaw.plugin.json /opt/openclaw-local/openclaw.plugin.json && cp /seed/qqbot-history-media-patch.mjs /opt/openclaw-local/qqbot-history-media-patch.mjs && cp /seed/media-policy.mjs /opt/openclaw-local/media-policy.mjs && cp /seed/diagnostic-policy.mjs /opt/openclaw-local/diagnostic-policy.mjs && cp /seed/context-recovery.mjs /opt/openclaw-local/context-recovery.mjs && cp /seed/context-recovery-core.mjs /opt/openclaw-local/context-recovery-core.mjs && chmod 0644 /opt/openclaw-local/qq-diagnostic-filter.mjs /opt/openclaw-local/openclaw.plugin.json /opt/openclaw-local/qqbot-history-media-patch.mjs /opt/openclaw-local/media-policy.mjs /opt/openclaw-local/diagnostic-policy.mjs /opt/openclaw-local/context-recovery.mjs /opt/openclaw-local/context-recovery-core.mjs"
     restart: "no"
 
   openclaw-gateway:
@@ -69,7 +73,7 @@ services:
       - sh
       - -c
       - >-
-        node /opt/openclaw-local/web-search-patch.mjs && node /opt/openclaw-local/qqbot-history-media-patch.mjs && exec node
+        node /opt/openclaw-local/qqbot-history-media-patch.mjs && exec node
         dist/index.js gateway --bind lan --port 18789 2>&1 | tee -a
         /tmp/openclaw/gateway.log
     healthcheck:

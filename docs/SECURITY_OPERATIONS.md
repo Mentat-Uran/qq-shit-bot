@@ -4,7 +4,7 @@
 
 - `.env`、Docker volume、会话数据库、完整日志、模型缓存和 QQ 私聊/群聊内容只存在本机忽略路径，不提交到 Git。
 - 诊断和健康报告只输出状态、计数、模型名和设备信息，不输出环境值、Authorization、QQ Secret 或原始日志。
-- Gateway Control UI 和 Operations Console 默认只绑定 `127.0.0.1`；Mac 只有显式设置 LAN 地址后才发布到局域网，且 Operations Console 强制要求 `OPS_CONSOLE_TOKEN`。
+- Gateway Control UI 和 Operations Console 默认只绑定 `127.0.0.1`；Mac 只有显式设置 LAN 地址后才发布到局域网。可信家庭/办公室 LAN 可选择具体 IPv4 的 `OPS_CONSOLE_AUTH_MODE=none` 脱敏只读模式；需要更强保护时使用 `token` 模式，禁止 wildcard 绑定和公网转发。
 - `exec`、`read`、`write` 工具保持拒绝；群消息中的附件、转发内容和网页内容不具有运行时指令权限。
 
 ## 命令

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from ops_console.models import format_host_for_url
 from ops_console.server import HOST, build_server
 
 
@@ -23,9 +24,43 @@ def free_port():
         return sock.getsockname()[1]
 
 
+def free_ipv6_port():
+    with socket.socket(socket.AF_INET6) as sock:
+        sock.bind(("::1", 0))
+        return sock.getsockname()[1]
+
+
 def test_server_rejects_non_loopback_binding():
     with pytest.raises(ValueError):
         build_server(free_port(), state=FakeState(), host="0.0.0.0")
+
+
+def test_ipv6_literal_server_and_url_formatting():
+    try:
+        server = build_server(free_ipv6_port(), state=FakeState(), host="::1", auth_token="ipv6-token")
+    except OSError as error:
+        pytest.skip(f"IPv6 loopback unavailable: {error}")
+    try:
+        assert server.address_family == socket.AF_INET6
+        assert format_host_for_url("::1") == "[::1]"
+        assert format_host_for_url("192.168.1.10") == "192.168.1.10"
+    finally:
+        server.server_close()
+
+
+def test_unauthenticated_lan_mode_requires_concrete_ip(monkeypatch):
+    monkeypatch.setenv("OPS_CONSOLE_AUTH_MODE", "none")
+    with pytest.raises(ValueError):
+        build_server(free_port(), state=FakeState(), host="0.0.0.0")
+
+
+def test_loopback_placeholder_token_is_treated_as_unset(monkeypatch):
+    monkeypatch.setenv("OPS_CONSOLE_AUTH_MODE", "token")
+    server = build_server(free_port(), state=FakeState(), auth_token="replace-with-ops-console-token")
+    try:
+        assert server.console_auth_token is None
+    finally:
+        server.server_close()
 
 
 def test_server_reports_port_conflict_without_fallback_binding():

@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
-ENV_FILE="$REPO_ROOT/deploy/openclaw/.env"
+. "$SCRIPT_DIR/lib.sh"
 
 case "${1:-}" in
     --allow-placeholders|--diagnose)
