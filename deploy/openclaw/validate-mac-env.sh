@@ -61,6 +61,13 @@ console_bind=$(env_value OPS_CONSOLE_BIND_HOST)
 console_bind=${console_bind:-127.0.0.1}
 console_port=$(env_value OPS_CONSOLE_PORT)
 console_port=${console_port:-18888}
+console_auth_mode=$(env_value OPS_CONSOLE_AUTH_MODE)
+console_auth_mode=${console_auth_mode:-token}
+
+case "$console_auth_mode" in
+    token|none) ;;
+    *) echo 'OPS_CONSOLE_AUTH_MODE must be token or none.' >&2; exit 1 ;;
+esac
 
 case "$console_port" in
     *[!0-9]*|"") echo 'OPS_CONSOLE_PORT must be numeric.' >&2; exit 1 ;;
@@ -77,8 +84,13 @@ is_loopback() {
     esac
 }
 
-if ! is_loopback "$gateway_bind" || ! is_loopback "$console_bind"; then
-    check_value OPS_CONSOLE_TOKEN
+if ! is_loopback "$console_bind"; then
+    if [ "$console_auth_mode" = "token" ]; then
+        check_value OPS_CONSOLE_TOKEN
+    elif [ "$console_bind" = "0.0.0.0" ] || [ "$console_bind" = "::" ]; then
+        echo 'Unauthenticated LAN console mode requires a concrete LAN IP, not a wildcard bind.' >&2
+        exit 1
+    fi
 fi
 
 if ! is_loopback "$gateway_bind"; then

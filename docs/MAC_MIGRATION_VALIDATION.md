@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | SenseNova 文本/视觉探针 | `python3 scripts/sensenova_probe.py --env-file deploy/openclaw/.env --image <本地测试图片>` | 已验证：图片请求 HTTP 200、视觉内容可用 |
 | 图片模型 | `sensenova-6.7-flash-lite` | 已验证：在线图片请求成功 |
-| 最终文本模型 | `deepseek-chat` | 已验证：DeepSeek 请求 HTTP 200、最终内容可用 |
+| 最终文本模型 | `sensenova-token/deepseek-v4-flash` | 已验证：SenseNova 文本请求 HTTP 200、最终内容可用；官方 `deepseek/deepseek-chat` 未在本次默认探针中调用 |
 | OpenClaw Gateway 图片入口 | 本机 `/v1/chat/completions` 图片请求 | 未验证：当前 Mac 配置未启用该 HTTP 入口，返回 404；不代表 QQ 插件路径失败 |
 | 视觉失败降级 | 记录短回复/无诊断泄露行为 | 未验证 |
 | QQ 实际图片附件进入视觉模型 | 真实 QQ 事件与脱敏 Gateway 证据 | 未验证 |
@@ -32,13 +32,13 @@
 | 项目 | 证据 | 结果 |
 | --- | --- | --- |
 | 默认回环边界 | 未设置 LAN 地址时 `127.0.0.1` 可访问、局域网地址拒绝 | 已验证源码默认回环；未做另一台机器访问 |
-| Mac 面板 | Mac 浏览器访问 `http://127.0.0.1:18888/` | 已验证：`/api/health` 与 `/api/snapshot` 成功，deployment=mac |
+| Mac 面板 | Mac 浏览器访问具体 LAN IPv4 的 `http://<mac-lan-ip>:18888/` | 已验证：`/api/health` 成功，`deployment=mac`、`authMode=none`、`authRequired=false`；第二设备访问未验证 |
 | Windows 浏览器访问 Mac 面板 | 同一局域网 Windows 浏览器 + 认证 | 未验证 |
-| 未授权访问 | 无 `Authorization` 时 HTTP 401 | 已验证：受保护绑定模拟返回 401；Bearer token 返回健康响应 |
+| 未授权访问 | 无 `Authorization` 时 HTTP 401 | 已验证 token 模式模拟返回 401；当前实际 LAN 模式为明确配置的无 Token 脱敏只读访问 |
 | Control UI | 通过 Mac 广播地址访问并输入 Gateway Token | 未验证 |
 | Docker 边界 | 浏览器没有 Docker Socket/任意命令入口 | 源码边界已声明；运行验证未验证 |
 
-LAN 模式必须显式设置 `OPENCLAW_GATEWAY_BIND_HOST`、`OPENCLAW_GATEWAY_PUBLIC_HOST`、`OPS_CONSOLE_BIND_HOST` 和 `OPS_CONSOLE_TOKEN`；默认配置不开放 LAN。优先绑定 Mac 的具体局域网 IPv4，绑定 `0.0.0.0` 时同时配置 macOS 防火墙，禁止公网端口转发。
+LAN 模式默认关闭。需要同网段 Windows 或手机访问时可运行 `scripts/mac/configure-lan-console.sh`，显式绑定具体 Mac 局域网 IPv4 并启用仅脱敏只读数据的 `OPS_CONSOLE_AUTH_MODE=none`；不允许无 Token 模式绑定 `0.0.0.0`/`::`，也禁止公网端口转发。需要更强保护时使用 `OPS_CONSOLE_AUTH_MODE=token` 和 `OPS_CONSOLE_TOKEN`。
 
 ## 真实 QQ
 

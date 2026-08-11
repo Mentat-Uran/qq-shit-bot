@@ -16,6 +16,10 @@ require_env_file() {
         echo "Missing $ENV_FILE; create it from .env.example without printing credentials." >&2
         exit 1
     fi
+    if ! chmod 600 "$ENV_FILE"; then
+        echo "Cannot enforce private permissions on $ENV_FILE." >&2
+        exit 1
+    fi
 }
 
 require_docker() {

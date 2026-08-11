@@ -18,7 +18,7 @@
 
 控制台启动不会启动、停止或重启 OpenClaw。正式 QQ Bot 仍必须使用 `scripts/windows/Start-OpenClawQQBot.bat`，该入口和 `deploy/openclaw/Start-OpenClawDocker.ps1` 没有被替换。
 
-macOS 使用 `scripts/mac/console.sh`。默认仍绑定 `127.0.0.1:18888`；需要同一局域网 Windows 浏览器访问时，设置 `OPS_CONSOLE_BIND_HOST`、`OPS_CONSOLE_PORT` 和 `OPS_CONSOLE_TOKEN` 后运行该脚本。非回环监听会要求认证，支持浏览器 Basic Auth（用户名任意、密码为 Token）或请求头 `Authorization: Bearer <token>`。Token 不进入 URL、页面快照或日志。
+macOS 使用 `scripts/mac/console.sh`。默认仍绑定 `127.0.0.1:18888`；需要同一局域网 Windows 或手机浏览器访问时，可运行 `scripts/mac/configure-lan-console.sh`，它会绑定具体 Mac LAN IPv4 并启用 `OPS_CONSOLE_AUTH_MODE=none`。该模式只开放脱敏只读数据，不接受任意命令、Docker Socket 或密钥，且禁止绑定 `0.0.0.0`/`::` 和公网转发。需要更强保护时将模式设为 `token`，再使用浏览器 Basic Auth（用户名任意、密码为 Token）或 `Authorization: Bearer <token>`；Token 不进入 URL、页面快照或日志。
 
 从任意工作目录启动 Mac 控制台都可以使用 `scripts/mac/console.sh`；`--no-browser` 适合 LaunchAgent 或无图形会话。Docker Desktop 暂不可用时，控制台仍应能启动并返回降级快照；只有服务状态采集会显示为未知或降级。需要进程退出后自动拉起时，运行 `scripts/mac/install-launch-agent.sh`，卸载使用 `scripts/mac/uninstall-launch-agent.sh`。
 

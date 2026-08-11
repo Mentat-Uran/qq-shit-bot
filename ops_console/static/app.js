@@ -259,8 +259,9 @@ function render(snapshot) {
   $("#ollama-source").textContent = mac ? "图片识别结果交给 DeepSeek 文本模型；GPU/本地模型不适用" : dashboard.ollama?.status === "available" ? evidenceText(dashboard.ollama) : dashboard.ollama?.detail || "视觉模式未采集";
   const consoleInfo = snapshot.console || {};
   const lanAccess = consoleInfo.bind && !["127.0.0.1", "::1", "localhost"].includes(consoleInfo.bind);
-  $("#access-badge").textContent = lanAccess ? "受保护 LAN 访问" : "仅本机访问";
-  $("#access-detail").innerHTML = `监听 ${esc(consoleInfo.bind || "未知")} : ${esc(consoleInfo.port || "未知")}<br>浏览器不接触 Docker socket`;
+  $("#access-badge").textContent = lanAccess ? (consoleInfo.authRequired === false ? "LAN 访问（无 Token）" : "受保护 LAN 访问") : "仅本机访问";
+  const authLabel = lanAccess && consoleInfo.authRequired === false ? "同网段可访问；仅暴露脱敏只读数据" : "浏览器不接触 Docker socket";
+  $("#access-detail").innerHTML = `监听 ${esc(consoleInfo.bind || "未知")} : ${esc(consoleInfo.port || "未知")}<br>${authLabel}`;
   const websocket = dashboard.websocket || {};
   $("#qq-chip").textContent = statusLabel(websocket.status);
   $("#qq-connection").textContent = statusLabel(websocket.status);

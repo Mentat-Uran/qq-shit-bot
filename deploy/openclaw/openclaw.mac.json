@@ -21,9 +21,9 @@
       "timeoutSeconds": 900,
       "utilityModel": "",
       "model": {
-        "primary": "deepseek/deepseek-chat",
+        "primary": "sensenova-token/deepseek-v4-flash",
         "fallbacks": [
-          "sensenova-token/deepseek-v4-flash"
+          "deepseek/deepseek-chat"
         ]
       },
       "imageModel": "sensenova-vision/sensenova-6.7-flash-lite",
@@ -56,7 +56,7 @@
         "models": [
           {
             "id": "deepseek-chat",
-            "name": "Official DeepSeek Chat (Mac final reply)",
+            "name": "Official DeepSeek Chat (Mac text fallback)",
             "input": [
               "text"
             ],
@@ -76,7 +76,7 @@
         "models": [
           {
             "id": "deepseek-v4-flash",
-            "name": "SenseNova DeepSeek V4 Flash (text fallback)",
+            "name": "SenseNova DeepSeek V4 Flash (Mac text primary)",
             "input": [
               "text"
             ],

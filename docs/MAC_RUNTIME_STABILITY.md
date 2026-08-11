@@ -54,4 +54,4 @@ lsof -nP -iTCP:18888 -sTCP:LISTEN
 scripts/mac/logs.sh 80
 ```
 
-若 Mac 睡眠或网络切换后服务没有恢复，先唤醒 Docker Desktop，再运行 `scripts/mac/start.sh`；不要删除 named volume。若控制台绑定了局域网地址，继续使用 `OPS_CONSOLE_TOKEN` 认证，禁止路由器端口转发。
+若 Mac 睡眠或网络切换后服务没有恢复，先唤醒 Docker Desktop，再运行 `scripts/mac/start.sh`；不要删除 named volume。无 Token 局域网模式必须继续绑定具体 Mac LAN IPv4，只开放脱敏只读控制台；需要更强保护时切回 `OPS_CONSOLE_AUTH_MODE=token`，两种模式都禁止路由器端口转发。
