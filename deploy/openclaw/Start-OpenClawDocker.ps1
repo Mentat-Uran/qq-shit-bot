@@ -176,6 +176,7 @@ function Ensure-RuntimeFiles {
 function Ensure-ProactiveReview {
     $enabled = Get-DotEnvValue -Path $envFile -Name 'QQBOT_PROACTIVE_REVIEW_ENABLED'
     if ($enabled -ne 'true') {
+        Remove-ProactiveReviewJobs
         Write-Host 'QQBOT_PROACTIVE_REVIEW_ENABLED is not true; skipping the group proactive review job registration.'
         return
     }
@@ -278,6 +279,37 @@ function Ensure-ProactiveReview {
         -CronExpression '*/30 2-7 * * *' `
         -DeclarationKey 'qqbot-proactive-review-night' `
         -Description 'Review collected QQ group context every 30 minutes overnight.'
+}
+
+function Remove-ProactiveReviewJobs {
+    $jobsJson = $null
+    for ($attempt = 0; $attempt -lt 4; $attempt++) {
+        try {
+            $jobsJson = (Invoke-Compose -Arguments @('exec', '-T', 'openclaw-gateway', 'node', 'dist/index.js', 'cron', 'list', '--all', '--json') | Out-String).Trim()
+            break
+        } catch {
+            if ($attempt -eq 3) {
+                throw 'Unable to inspect existing proactive review jobs while the feature is disabled.'
+            }
+            Start-Sleep -Seconds 5
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($jobsJson)) {
+        throw 'The cron job listing was empty while the proactive review feature was disabled.'
+    }
+    try {
+        $parsed = $jobsJson | ConvertFrom-Json
+    } catch {
+        throw 'The cron job listing was not valid JSON while the proactive review feature was disabled.'
+    }
+    $jobs = if ($parsed -is [System.Array]) { $parsed } elseif ($null -ne $parsed.jobs) { $parsed.jobs } elseif ($null -ne $parsed.items) { $parsed.items } else { @() }
+    $declarationKeys = @('qqbot-proactive-review', 'qqbot-proactive-review-night')
+    foreach ($job in @($jobs)) {
+        if ($job.declarationKey -in $declarationKeys -and $job.id) {
+            Write-Host ("Removing disabled proactive review job: {0}" -f $job.id)
+            Invoke-Compose -Arguments @('exec', '-T', 'openclaw-gateway', 'node', 'dist/index.js', 'cron', 'remove', [string]$job.id)
+        }
+    }
 }
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
