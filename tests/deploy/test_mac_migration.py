@@ -3,7 +3,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.sensenova_probe import DEEPSEEK_URL, TEXT_MODEL, THINKING_LEVEL, VISION_MODEL, content_from_response
+from scripts.sensenova_probe import DEEPSEEK_URL, TEXT_MODEL, THINKING_MODE, VISION_MODEL, content_from_response
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -54,7 +54,7 @@ def test_mac_config_routes_image_to_sensenova_and_text_to_official_deepseek():
 def test_sensenova_probe_uses_sensenova_for_vision_and_official_deepseek_for_text():
     assert VISION_MODEL == "sensenova-6.7-flash-lite"
     assert TEXT_MODEL == "deepseek-v4-flash"
-    assert THINKING_LEVEL == "medium"
+    assert THINKING_MODE == "enabled"
     assert DEEPSEEK_URL == "https://api.deepseek.com/v1/chat/completions"
 
 
@@ -65,6 +65,8 @@ def test_mac_shell_entries_are_unix_only_and_use_mac_compose():
     assert "OPENCLAW_UID=$(id -u)" in (ROOT / "scripts" / "mac" / "start.sh").read_text(encoding="utf-8")
     assert "bot-workspace/AGENTS.md" in (ROOT / "scripts" / "mac" / "start.sh").read_text(encoding="utf-8")
     assert "QQBOT_PROACTIVE_REVIEW_ENABLED" in (ROOT / "scripts" / "mac" / "start.sh").read_text(encoding="utf-8")
+    assert "cron list --all --json" in (ROOT / "scripts" / "mac" / "start.sh").read_text(encoding="utf-8")
+    assert "cron remove" in (ROOT / "scripts" / "mac" / "start.sh").read_text(encoding="utf-8")
     for script in scripts:
         text = script.read_text(encoding="utf-8")
         assert "powershell" not in text.lower()
@@ -98,4 +100,5 @@ def test_mac_console_launcher_exports_public_host_and_private_env_boundary():
 
 def test_sensenova_probe_accepts_reasoning_only_multimodal_response():
     response = {"choices": [{"message": {"role": "assistant", "reasoning": "一棵树"}}]}
-    assert content_from_response(response) == "一棵树"
+    assert content_from_response(response, allow_reasoning=True) == "一棵树"
+    assert content_from_response(response) is None
