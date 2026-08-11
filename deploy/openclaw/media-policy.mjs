@@ -38,8 +38,8 @@ export function shouldUseRecentImage(text = "") {
 }
 
 export function selectSingleImage({ currentUrls = [], currentTypes = [], quotedImage, recentImage, text = "" } = {}) {
-  if (currentUrls[0]) return { path: currentUrls[0], contentType: currentTypes[0] || "image/png", source: "current" };
   if (quotedImage?.path) return { ...quotedImage, source: "quote" };
+  if (currentUrls[0]) return { path: currentUrls[0], contentType: currentTypes[0] || "image/png", source: "current" };
   if (shouldUseRecentImage(text) && recentImage?.path) return { ...recentImage, source: "recent" };
   return null;
 }
@@ -98,8 +98,8 @@ function shouldUseRecentImage(text = "") {
 }
 
 function selectSingleImage({ currentUrls = [], currentTypes = [], quotedImage, recentImage, text = "" } = {}) {
-\tif (currentUrls[0]) return { path: currentUrls[0], contentType: currentTypes[0] || "image/png", source: "current" };
 \tif (quotedImage?.path) return { ...quotedImage, source: "quote" };
+\tif (currentUrls[0]) return { path: currentUrls[0], contentType: currentTypes[0] || "image/png", source: "current" };
 \tif (shouldUseRecentImage(text) && recentImage?.path) return { ...recentImage, source: "recent" };
 \treturn null;
 }
@@ -138,21 +138,23 @@ function imageMediaFromAttachments(attachments, processed) {
 \tconst paths = processed?.attachmentLocalPaths ?? [];
 \treturn (Array.isArray(attachments) ? attachments : [])
 \t\t.map((attachment, index) => {
-\t\t\tconst contentType = attachment?.contentType || attachment?.content_type || "image/png";
-\t\t\treturn { attachment, path: paths[index] || attachment?.localPath || attachment?.url, contentType };
+\t\t\tconst declaredType = attachment?.contentType || attachment?.content_type || "";
+\t\t\tconst isImage = attachment?.type === "image" || declaredType.startsWith("image/");
+\t\t\tconst contentType = declaredType || (attachment?.type === "image" ? "image/png" : "");
+\t\t\treturn { attachment, path: paths[index] || attachment?.localPath || attachment?.url, contentType, isImage };
 \t\t})
-\t\t.filter(({ attachment, path, contentType }) => attachment?.type === "image" || contentType.startsWith("image/"))
+\t\t.filter(({ isImage }) => isImage)
 \t\t.filter(({ path }) => Boolean(path))
 \t\t.slice(0, 1)
 \t\t.map(({ path, contentType }) => ({ path, contentType }));
 }
 
 function mergeSingleQuotedImage(processed, replyTo, recentImage, text = "") {
-\treturn applySingleImageLimit(processed, {
+\treturn filterMediaByCapability(applySingleImageLimit(processed, {
 \t\tquotedImage: replyTo?.media?.[0],
 \t\trecentImage,
 \t\ttext
-\t});
+\t}));
 }
 `;
 }
