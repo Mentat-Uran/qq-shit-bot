@@ -14,7 +14,7 @@ sh "$DEPLOY_DIR/validate-mac-env.sh" --env-file "$ENV_FILE"
 mkdir -p "$DEPLOY_DIR/runtime/config" "$DEPLOY_DIR/runtime/workspace"
 chmod 700 "$DEPLOY_DIR/runtime" "$DEPLOY_DIR/runtime/config" "$DEPLOY_DIR/runtime/workspace"
 cp "$DEPLOY_DIR/openclaw.mac.json" "$DEPLOY_DIR/runtime/config/openclaw.json"
-if [ ! -f "$DEPLOY_DIR/runtime/workspace/AGENTS.md" ]; then cp "$REPO_ROOT/AGENTS.md" "$DEPLOY_DIR/runtime/workspace/AGENTS.md"; fi
+if [ ! -f "$DEPLOY_DIR/runtime/workspace/AGENTS.md" ]; then cp "$DEPLOY_DIR/bot-workspace/AGENTS.md" "$DEPLOY_DIR/runtime/workspace/AGENTS.md"; fi
 if [ ! -f "$DEPLOY_DIR/runtime/workspace/SOUL.md" ]; then cp "$REPO_ROOT/SOUL.md" "$DEPLOY_DIR/runtime/workspace/SOUL.md"; fi
 chmod 600 "$DEPLOY_DIR/runtime/config/openclaw.json" "$DEPLOY_DIR/runtime/workspace/AGENTS.md" "$DEPLOY_DIR/runtime/workspace/SOUL.md"
 printf '%s\n' '{"image":true,"video":false}' > "$DEPLOY_DIR/runtime/config/media-capabilities.json"
@@ -58,8 +58,12 @@ register_proactive_review() {
     return 1
 }
 
-register_proactive_review qqbot-proactive-review '*/10 8-23,0-1 * * *' 'Review collected QQ group context every 10 minutes during daytime.'
-register_proactive_review qqbot-proactive-review-night '*/30 2-7 * * *' 'Review collected QQ group context every 30 minutes overnight.'
+if [ "$(env_value QQBOT_PROACTIVE_REVIEW_ENABLED)" = "true" ]; then
+    register_proactive_review qqbot-proactive-review '*/10 8-23,0-1 * * *' 'Review one pending QQ group message every 10 minutes during daytime.'
+    register_proactive_review qqbot-proactive-review-night '*/30 2-7 * * *' 'Review one pending QQ group message every 30 minutes overnight.'
+else
+    echo "QQBOT_PROACTIVE_REVIEW_ENABLED is not true; skipping proactive review job registration."
+fi
 
 compose ps openclaw-gateway context-recovery
 printf '\nMac OpenClaw QQ Bot is running; Gateway port=%s; local vision services are not part of this stack.\n' "$(env_value OPENCLAW_GATEWAY_PORT)"
