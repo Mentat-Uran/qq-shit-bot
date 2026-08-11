@@ -18,6 +18,7 @@ $runtimeDir = Join-Path $scriptDir 'runtime'
 $configDir = Join-Path $runtimeDir 'config'
 $workspaceLink = Join-Path $runtimeDir 'workspace'
 $sourceConfig = Join-Path $scriptDir 'openclaw.json'
+$sourceBotAgents = Join-Path $scriptDir 'bot-workspace\AGENTS.md'
 $runtimeConfig = Join-Path $configDir 'openclaw.json'
 
 function Get-DotEnvValue {
@@ -168,11 +169,16 @@ function Ensure-RuntimeFiles {
     New-Item -ItemType Directory -Force -Path $configDir | Out-Null
     New-Item -ItemType Directory -Force -Path $workspaceLink | Out-Null
     Copy-Item -LiteralPath $sourceConfig -Destination $runtimeConfig -Force
-    Copy-Item -LiteralPath (Join-Path $scriptDir '..\..\AGENTS.md') -Destination (Join-Path $workspaceLink 'AGENTS.md') -Force
+    Copy-Item -LiteralPath $sourceBotAgents -Destination (Join-Path $workspaceLink 'AGENTS.md') -Force
     Copy-Item -LiteralPath (Join-Path $scriptDir '..\..\SOUL.md') -Destination (Join-Path $workspaceLink 'SOUL.md') -Force
 }
 
 function Ensure-ProactiveReview {
+    $enabled = Get-DotEnvValue -Path $envFile -Name 'QQBOT_PROACTIVE_REVIEW_ENABLED'
+    if ($enabled -ne 'true') {
+        Write-Host 'QQBOT_PROACTIVE_REVIEW_ENABLED is not true; skipping the group proactive review job registration.'
+        return
+    }
     $homeChannel = Get-DotEnvValue -Path $envFile -Name 'QQBOT_HOME_CHANNEL'
     if ([string]::IsNullOrWhiteSpace($homeChannel) -or $homeChannel -like 'replace-with-*') {
         Write-Host 'QQBOT_HOME_CHANNEL is not set; skipping the group proactive review job registration.'
