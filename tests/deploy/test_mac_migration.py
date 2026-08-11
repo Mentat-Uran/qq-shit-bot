@@ -3,7 +3,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.sensenova_probe import content_from_response
+from scripts.sensenova_probe import DEEPSEEK_URL, TEXT_MODEL, THINKING_LEVEL, VISION_MODEL, content_from_response
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,21 +28,34 @@ def test_mac_compose_is_cloud_vision_only_and_keeps_windows_compose_separate():
     assert "qwen-vision" in (DEPLOY / "docker-compose.yml").read_text(encoding="utf-8")
 
 
-def test_mac_config_routes_image_to_sensenova_then_text_to_deepseek():
+def test_mac_config_routes_image_to_sensenova_and_text_to_official_deepseek():
     config = json.loads((DEPLOY / "openclaw.mac.json").read_text(encoding="utf-8"))
     defaults = config["agents"]["defaults"]
     providers = config["models"]["providers"]
     assert defaults["model"] == {
-        "primary": "sensenova-token/deepseek-v4-flash",
-        "fallbacks": ["deepseek/deepseek-chat"],
+        "primary": "deepseek/deepseek-v4-flash",
+        "fallbacks": [],
     }
+    assert defaults["thinkingDefault"] == "medium"
     assert defaults["imageModel"] == "sensenova-vision/sensenova-6.7-flash-lite"
     vision = providers["sensenova-vision"]["models"][0]
     assert vision["id"] == "sensenova-6.7-flash-lite"
     assert vision["input"] == ["text", "image"]
+    assert providers["sensenova-vision"]["baseUrl"] == "https://token.sensenova.cn/v1"
+    assert providers["deepseek"]["baseUrl"] == "https://api.deepseek.com/v1"
+    assert providers["deepseek"]["models"][0]["id"] == "deepseek-v4-flash"
+    assert providers["deepseek"]["models"][0]["reasoning"] is True
+    assert "sensenova-token" not in providers
     assert config["tools"]["media"]["models"][0]["model"] == "sensenova-6.7-flash-lite"
     assert config["tools"]["media"]["video"]["enabled"] is False
     assert "local-vision" not in json.dumps(config)
+
+
+def test_sensenova_probe_uses_sensenova_for_vision_and_official_deepseek_for_text():
+    assert VISION_MODEL == "sensenova-6.7-flash-lite"
+    assert TEXT_MODEL == "deepseek-v4-flash"
+    assert THINKING_LEVEL == "medium"
+    assert DEEPSEEK_URL == "https://api.deepseek.com/v1/chat/completions"
 
 
 def test_mac_shell_entries_are_unix_only_and_use_mac_compose():
@@ -50,6 +63,8 @@ def test_mac_shell_entries_are_unix_only_and_use_mac_compose():
     assert {script.name for script in scripts} >= {"start.sh", "stop.sh", "status.sh", "logs.sh", "check-env.sh", "console.sh", "configure-lan-console.sh"}
     assert "docker-compose.mac.yml" in (ROOT / "scripts" / "mac" / "lib.sh").read_text(encoding="utf-8")
     assert "OPENCLAW_UID=$(id -u)" in (ROOT / "scripts" / "mac" / "start.sh").read_text(encoding="utf-8")
+    assert "bot-workspace/AGENTS.md" in (ROOT / "scripts" / "mac" / "start.sh").read_text(encoding="utf-8")
+    assert "QQBOT_PROACTIVE_REVIEW_ENABLED" in (ROOT / "scripts" / "mac" / "start.sh").read_text(encoding="utf-8")
     for script in scripts:
         text = script.read_text(encoding="utf-8")
         assert "powershell" not in text.lower()
