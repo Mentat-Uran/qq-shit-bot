@@ -29,10 +29,12 @@ from .redaction import public_error
 
 
 SERVICES = ("openclaw-gateway", "context-recovery", "qwen-vision")
+MAC_SERVICES = ("openclaw-gateway", "context-recovery")
 DEFAULT_GATEWAY_PORT = 18789
 MAX_LOG_RECORDS = 80
 MAX_HISTORY_SAMPLES = 720
 CONFIG_PATH = "deploy/openclaw/openclaw.json"
+MAC_CONFIG_PATH = "deploy/openclaw/openclaw.mac.json"
 LOG_SOURCE = "docker compose logs --tail 80"
 STATE_DB_PATH = "deploy/openclaw/runtime/config/state/openclaw.sqlite"
 SESSION_DIR = "deploy/openclaw/runtime/config/agents/main/sessions"
@@ -99,13 +101,13 @@ def parse_json_lines(output: str) -> list[dict[str, Any]]:
     return rows
 
 
-def parse_compose_rows(output: str) -> list[dict[str, Any]]:
+def parse_compose_rows(output: str, services: tuple[str, ...] = SERVICES) -> list[dict[str, Any]]:
     """Normalize Compose's JSON output without exposing raw row data."""
 
     rows: list[dict[str, Any]] = []
     for row in parse_json_lines(output):
         service = row.get("Service") or row.get("service") or row.get("Name")
-        if service not in SERVICES:
+        if service not in services:
             continue
         rows.append(
             {
@@ -325,17 +327,18 @@ def parse_runtime_events(output: str, observed_at: str | None = None) -> list[di
 class RuntimeConfigCollector:
     """Read allow-listed operational limits from the checked-in OpenClaw config."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, source: str = CONFIG_PATH):
         self.path = path
+        self.source = source
 
     def collect(self) -> dict[str, Any]:
         observed_at = utc_now()
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return unknown(CONFIG_PATH, "OpenClaw 配置不可读取", observed_at)
+            return unknown(self.source, "OpenClaw 配置不可读取", observed_at)
         if not isinstance(payload, dict):
-            return unknown(CONFIG_PATH, "OpenClaw 配置格式不可用", observed_at)
+            return unknown(self.source, "OpenClaw 配置格式不可用", observed_at)
 
         agents = payload.get("agents") if isinstance(payload.get("agents"), dict) else {}
         defaults = agents.get("defaults") if isinstance(agents.get("defaults"), dict) else {}
@@ -356,7 +359,7 @@ class RuntimeConfigCollector:
 
         return evidence(
             "available",
-            CONFIG_PATH,
+            self.source,
             "direct",
             observed_at,
             contextTokens=integer(defaults.get("contextTokens")),
@@ -512,8 +515,58 @@ class RuntimeStateCollector:
 
 
 class HostCollector:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, runner: CommandRunner | None = None):
         self.root = root
+        self.runner = runner or CommandRunner()
+
+    def _mac_command(self, args: list[str]) -> CommandResult:
+        return self.runner.run(args, self.root, timeout=4)
+
+    def _cpu_percent_macos(self) -> float | None:
+        result = self._mac_command(["ps", "-A", "-o", "%cpu="])
+        if result.code != 0:
+            return None
+        values: list[float] = []
+        for line in result.stdout.splitlines():
+            try:
+                values.append(float(line.strip()))
+            except ValueError:
+                continue
+        if not values:
+            return None
+        cores = max(1, os.cpu_count() or 1)
+        return round(min(100.0, max(0.0, sum(values) / cores)), 1)
+
+    def _memory_macos(self, observed_at: str) -> dict[str, Any]:
+        total_result = self._mac_command(["sysctl", "-n", "hw.memsize"])
+        vm_result = self._mac_command(["vm_stat"])
+        try:
+            total_bytes = int(total_result.stdout.strip())
+        except (TypeError, ValueError):
+            return unknown("macOS sysctl/vm_stat", "内存总量未采集", observed_at)
+        page_match = re.search(r"page size of (\d+) bytes", vm_result.stdout)
+        if vm_result.code != 0 or not page_match or total_bytes <= 0:
+            return unknown("macOS sysctl/vm_stat", "内存页统计未采集", observed_at)
+        page_size = int(page_match.group(1))
+        pages: dict[str, int] = {}
+        for line in vm_result.stdout.splitlines():
+            match = re.match(r"Pages (.+):\s+(\d+)", line)
+            if match:
+                pages[match.group(1).lower()] = int(match.group(2))
+        available_pages = sum(pages.get(name, 0) for name in ("free", "inactive", "speculative"))
+        available_bytes = min(total_bytes, available_pages * page_size)
+        used_bytes = max(0, total_bytes - available_bytes)
+        return evidence(
+            "available",
+            "macOS sysctl/vm_stat",
+            "direct",
+            observed_at,
+            totalBytes=total_bytes,
+            availableBytes=available_bytes,
+            usedBytes=used_bytes,
+            usedPercent=round(used_bytes / total_bytes * 100, 1),
+            memoryKind="system_ram",
+        )
 
     def _cpu_percent_windows(self) -> float | None:
         if os.name != "nt":
@@ -544,7 +597,7 @@ class HostCollector:
 
     def collect(self) -> dict[str, Any]:
         observed_at = utc_now()
-        cpu = self._cpu_percent_windows()
+        cpu = self._cpu_percent_windows() if os.name == "nt" else self._cpu_percent_macos()
         try:
             usage = shutil.disk_usage(self.root)
             disk = evidence(
@@ -591,34 +644,36 @@ class HostCollector:
             else:
                 memory = unknown("Windows GlobalMemoryStatusEx", "读取失败", observed_at)
         else:
-            memory = unknown("host memory", "当前实现优先支持 Windows 主机采集", observed_at)
+            memory = self._memory_macos(observed_at)
 
-        cpu_value = evidence("available", "Windows GetSystemTimes" if os.name == "nt" else "os.getloadavg", "direct", observed_at, percent=cpu) if cpu is not None else unknown("host CPU", "读取失败", observed_at)
+        cpu_source = "Windows GetSystemTimes" if os.name == "nt" else "macOS ps process CPU"
+        cpu_value = evidence("available", cpu_source, "direct", observed_at, percent=cpu) if cpu is not None else unknown("host CPU", "读取失败", observed_at)
         return {"cpu": cpu_value, "memory": memory, "disk": disk}
 
 
 class ModelRouteCollector:
-    def __init__(self, path: Path, config_path: Path):
+    def __init__(self, path: Path, config_path: Path, config_source: str = CONFIG_PATH):
         self.path = path
         self.config_path = config_path
+        self.config_source = config_source
 
     def _configured_route(self, observed_at: str) -> dict[str, Any]:
         try:
             payload = json.loads(self.config_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return unknown("deploy/openclaw/openclaw.json", "模型路由配置未采集", observed_at)
+            return unknown(self.config_source, "模型路由配置未采集", observed_at)
         defaults = payload.get("agents", {}).get("defaults", {}) if isinstance(payload, dict) else {}
         model = defaults.get("model") if isinstance(defaults, dict) else None
         if not isinstance(model, dict):
-            return unknown("deploy/openclaw/openclaw.json", "模型路由配置格式不可用", observed_at)
+            return unknown(self.config_source, "模型路由配置格式不可用", observed_at)
         primary = model.get("primary")
         fallbacks = model.get("fallbacks")
         if not isinstance(primary, str) or not primary.strip():
-            return unknown("deploy/openclaw/openclaw.json", "主模型配置未采集", observed_at)
+            return unknown(self.config_source, "主模型配置未采集", observed_at)
         fallback = next((item.strip() for item in fallbacks if isinstance(item, str) and item.strip()), "未配置") if isinstance(fallbacks, list) else "未配置"
         return evidence(
             "available",
-            "deploy/openclaw/openclaw.json",
+            self.config_source,
             "direct",
             observed_at,
             primary=primary[:120],
@@ -660,18 +715,21 @@ class ModelRouteCollector:
 
 
 class DockerCollector:
-    def __init__(self, root: Path, runner: CommandRunner | None = None):
+    def __init__(self, root: Path, runner: CommandRunner | None = None, deployment: str | None = None):
         self.root = root.resolve()
         self.compose_dir = self.root / "deploy" / "openclaw"
         self.runner = runner or CommandRunner()
+        requested = (deployment or os.environ.get("QQBOT_DEPLOYMENT") or "windows").strip().lower()
+        self.deployment = "mac" if requested == "mac" else "windows"
+        self.services = MAC_SERVICES if self.deployment == "mac" else SERVICES
         self.compose = [
             "docker",
             "compose",
             "-f",
-            str(self.compose_dir / "docker-compose.yml"),
-            "-f",
-            str(self.compose_dir / "docker-compose.local.yml"),
+            str(self.compose_dir / ("docker-compose.mac.yml" if self.deployment == "mac" else "docker-compose.yml")),
         ]
+        if self.deployment != "mac":
+            self.compose.extend(["-f", str(self.compose_dir / "docker-compose.local.yml")])
 
     def _compose_ps(self) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         observed_at = utc_now()
@@ -687,7 +745,7 @@ class DockerCollector:
                 evidence("unavailable", "docker compose ps --all", "not_collected", observed_at, detail=_public_command_detail(result)),
                 [],
             )
-        rows = parse_compose_rows(result.stdout)
+        rows = parse_compose_rows(result.stdout, self.services)
         return evidence("available", "docker compose ps --all", "direct", observed_at, count=len(rows)), rows
 
     def _stats(self, services: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -741,6 +799,15 @@ class DockerCollector:
         return DEFAULT_GATEWAY_PORT
 
     def _gpu(self, qwen_running: bool) -> dict[str, Any]:
+        if self.deployment == "mac":
+            return evidence(
+                "not_applicable",
+                "macOS SenseNova cloud vision",
+                "direct",
+                utc_now(),
+                detail="Mac Compose 不包含本地 GPU 视觉服务；图片识别走 SenseNova 6.7 Flash-Lite",
+                memoryKind="not_applicable",
+            )
         query = [
             "nvidia-smi",
             "--query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total,name",
@@ -759,6 +826,15 @@ class DockerCollector:
         return unknown("nvidia-smi / qwen-vision", detail, utc_now())
 
     def _ollama(self, qwen_running: bool) -> dict[str, Any]:
+        if self.deployment == "mac":
+            return evidence(
+                "not_applicable",
+                "macOS SenseNova cloud vision",
+                "direct",
+                utc_now(),
+                detail="Mac Compose 不启动本地模型服务",
+                currentModel=None,
+            )
         if not qwen_running:
             return unknown("ollama ps via qwen-vision", "qwen-vision 未运行", utc_now())
         result = self.runner.run(self.compose + ["exec", "-T", "qwen-vision", "ollama", "ps"], self.compose_dir, timeout=4)
@@ -770,7 +846,7 @@ class DockerCollector:
     def _logs(self) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
         observed_at = utc_now()
         result = self.runner.run(
-            self.compose + ["logs", "--no-color", "--timestamps", "--tail", "80", *SERVICES],
+            self.compose + ["logs", "--no-color", "--timestamps", "--tail", "80", *self.services],
             self.compose_dir,
             timeout=4,
         )
@@ -812,14 +888,19 @@ class DockerCollector:
         docker_status, rows = self._compose_ps()
         stats = self._stats(rows)
         by_service = {row["service"]: row for row in rows}
-        services = [service_row(by_service.get(name), name, stats, observed_at) for name in SERVICES]
+        services = [service_row(by_service.get(name), name, stats, observed_at) for name in self.services]
         gateway_port = self._gateway_port(docker_status)
         qwen_running = by_service.get("qwen-vision", {}).get("state") == "running"
         log_status, logs, websocket, events = self._logs()
+        public_host = os.environ.get("OPENCLAW_GATEWAY_PUBLIC_HOST") if self.deployment == "mac" else "127.0.0.1"
+        if not public_host or public_host.startswith("replace-with-"):
+            public_host = "127.0.0.1"
         return {
+            "deployment": self.deployment,
             "status": docker_status,
             "services": services,
             "gatewayPort": gateway_port,
+            "gatewayHost": public_host,
             "stats": stats,
             "systemRam": evidence(
                 "available" if stats else "unknown",
@@ -840,28 +921,34 @@ class DockerCollector:
         }
 
 
-def probe_gateway(port: int, timeout: float = 2.0) -> dict[str, Any]:
+def probe_gateway(port: int, host: str = "127.0.0.1", timeout: float = 2.0) -> dict[str, Any]:
     observed_at = utc_now()
-    url = f"http://127.0.0.1:{port}/healthz"
+    probe_host = host if host not in {"0.0.0.0", "::"} else "127.0.0.1"
+    url = f"http://{probe_host}:{port}/healthz"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
             status = "healthy" if 200 <= response.status < 300 else "degraded"
-            return evidence(status, "OpenClaw /healthz on loopback", "direct", observed_at, httpStatus=response.status, port=port)
+            return evidence(status, "OpenClaw /healthz on Mac host", "direct", observed_at, httpStatus=response.status, port=port, host=probe_host)
     except urllib.error.HTTPError as exc:
-        return evidence("degraded", "OpenClaw /healthz on loopback", "direct", observed_at, httpStatus=exc.code, port=port)
+        return evidence("degraded", "OpenClaw /healthz on Mac host", "direct", observed_at, httpStatus=exc.code, port=port, host=probe_host)
     except (OSError, urllib.error.URLError, TimeoutError):
-        return evidence("unknown", "OpenClaw /healthz on loopback", "not_collected", observed_at, httpStatus=None, port=port, detail="healthz 不可达")
+        return evidence("unknown", "OpenClaw /healthz on Mac host", "not_collected", observed_at, httpStatus=None, port=port, host=probe_host, detail="healthz 不可达")
 
 
 class SnapshotBuilder:
-    def __init__(self, root: Path, runner: CommandRunner | None = None):
+    def __init__(self, root: Path, runner: CommandRunner | None = None, deployment: str | None = None):
         self.root = root.resolve()
-        self.docker = DockerCollector(self.root, runner)
-        self.host = HostCollector(self.root)
-        self.config = RuntimeConfigCollector(self.root / CONFIG_PATH)
+        requested = (deployment or os.environ.get("QQBOT_DEPLOYMENT") or "windows").strip().lower()
+        self.deployment = "mac" if requested == "mac" else "windows"
+        config_path = self.root / (MAC_CONFIG_PATH if self.deployment == "mac" else CONFIG_PATH)
+        config_source = MAC_CONFIG_PATH if self.deployment == "mac" else CONFIG_PATH
+        self.docker = DockerCollector(self.root, runner, self.deployment)
+        self.host = HostCollector(self.root, runner)
+        self.config = RuntimeConfigCollector(config_path, config_source)
         self.route = ModelRouteCollector(
             self.root / "deploy" / "openclaw" / "runtime" / "model-route-state.json",
-            self.root / CONFIG_PATH,
+            config_path,
+            config_source,
         )
         self.state = RuntimeStateCollector(self.root / STATE_DB_PATH, self.root / SESSION_DIR)
 
@@ -894,7 +981,10 @@ class SnapshotBuilder:
     def build(self, history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         observed_at = utc_now()
         runtime = self.docker.collect()
-        gateway = probe_gateway(int(runtime.get("gatewayPort") or DEFAULT_GATEWAY_PORT))
+        gateway = probe_gateway(
+            int(runtime.get("gatewayPort") or DEFAULT_GATEWAY_PORT),
+            str(runtime.get("gatewayHost") or "127.0.0.1"),
+        )
         host = self.host.collect()
         route = self.route.collect()
         configuration = self.config.collect()
@@ -922,9 +1012,9 @@ class SnapshotBuilder:
         recent_model_request_at = model_request_meta.get("observedAt") if model_request_meta.get("status") == "available" else None
         recent_reply_at = reply_meta.get("observedAt") if reply_meta.get("status") == "available" else None
         configured_context = (
-            evidence("available", CONFIG_PATH, "direct", configuration.get("observedAt"), value=configuration.get("contextTokens"), kind="configured_limit")
+            evidence("available", self.config.source, "direct", configuration.get("observedAt"), value=configuration.get("contextTokens"), kind="configured_limit")
             if configuration.get("status") == "available" and configuration.get("contextTokens") is not None
-            else unknown(CONFIG_PATH, "上下文配置上限未采集", observed_at)
+            else unknown(self.config.source, "上下文配置上限未采集", observed_at)
         )
         queue_detail = "当前队列长度未采集"
         if configuration.get("status") == "available" and configuration.get("queueCap") is not None:
@@ -935,11 +1025,12 @@ class SnapshotBuilder:
         session_meta = runtime_state["summary"]
         return {
             "schemaVersion": "qqbot-ops/v1",
+            "deployment": self.deployment,
             "observedAt": observed_at,
             "console": {
                 "status": overall,
                 "detail": overall_detail,
-                "bind": "127.0.0.1",
+                "bind": os.environ.get("OPS_CONSOLE_BIND_HOST") or "127.0.0.1",
                 "port": None,
                 "source": "local console snapshot",
                 "confidence": "direct",
@@ -999,7 +1090,7 @@ class SnapshotBuilder:
             },
             "operations": {
                 "allowed": ["refresh", "open_control_ui", "view_services"],
-                "gatewayUrl": f"http://127.0.0.1:{runtime['gatewayPort']}/",
+                "gatewayUrl": f"http://{runtime.get('gatewayHost') or '127.0.0.1'}:{runtime['gatewayPort']}/",
                 "services": [item["service"] for item in runtime["services"]],
                 "note": "Phase 1 只读；不提供任意命令、Docker socket、清理缓存或高风险重启",
             },

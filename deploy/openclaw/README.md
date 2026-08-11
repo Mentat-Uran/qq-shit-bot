@@ -2,7 +2,7 @@
 
 This deployment runs OpenClaw and the official `@openclaw/qqbot` plugin entirely in Docker. It does not install OpenClaw, Node.js packages, or the QQ plugin on the host.
 
-This is the only supported deployment for the QQ bot. OpenClaw and all QQ bot services run in Docker; the host only needs Docker Desktop or Docker Engine.
+This is the only supported deployment family for the QQ bot. Windows keeps the Qwen/Ollama Compose path below; macOS uses the separate `docker-compose.mac.yml` path and does not start a local vision service. OpenClaw and all QQ bot services run in Docker; the host only needs Docker Desktop or Docker Engine.
 
 The Compose project name is `qq-shit-bot`, matching the GitHub remote repository. Service containers therefore use names such as `qq-shit-bot-openclaw-gateway-1`; persistent volumes use the `qqshitbot-openclaw_*` prefix.
 
@@ -21,7 +21,7 @@ The Compose project name is `qq-shit-bot`, matching the GitHub remote repository
 - QQ direct messages and group mentions are open to everyone by default (`dmPolicy`/`groupPolicy` = `open`); group replies still require an @ mention. Re-enable the owner allowlist by setting `dmPolicy`/`groupPolicy` to `allowlist` and adding the OpenIDs to `allowFrom`/`groupAllowFrom`.
 - Startup model discovery disabled because all providers are declared explicitly; model loading still occurs on the first request.
 - Qwen2.5-VL 7B is the only enabled image-understanding path. The NVIDIA LocateAnything-3B image-fusion fallback and the Microsoft Mage-VL video bridge have been removed from the repository and deployment path. Their model routes are absent from `openclaw.json`, and no video analysis is performed by the gateway.
-- The Qwen2.5-VL Ollama service, OpenClaw gateway, and context-recovery sidecar are the active services in the Compose project. Qwen has no host port and is reached at `qwen-vision:11434` on the private Compose network.
+- On Windows, the Qwen2.5-VL Ollama service, OpenClaw gateway, and context-recovery sidecar are the active services in the default Compose project. Qwen has no host port and is reached at `qwen-vision:11434` on the private Compose network. Mac does not load this service.
 - QQ image messages can use a two-message workflow for mobile clients: send the image first, then send a message that @mentions the bot. A media message that already includes the bot mention is passed directly; ordinary non-media chatter remains mention-gated.
 - Group sessions have a 120-minute idle reset, and the `context-recovery` sidecar watches the gateway log for an unrecoverable context overflow or stalled agent run and resets the affected QQ group session automatically. Existing log contents are not replayed when the sidecar starts, so an old failure cannot reset a newly started session.
 
@@ -51,6 +51,32 @@ The Unix setup script uses `environment-contract.txt`; the Windows BAT launcher 
 The script creates `runtime/`, copies the repository persona files, installs the official QQ plugin inside a one-shot OpenClaw container, validates the config, ensures the in-project `qwen-vision` service has `qwen2.5vl:7b`, and starts the gateway plus the context-recovery sidecar. It accepts either the Docker Compose plugin (`docker compose`) or the standalone `docker-compose` command. Secrets and runtime state remain under ignored local paths.
 
 Open the Control UI at `http://127.0.0.1:18789` and authenticate with `OPENCLAW_GATEWAY_TOKEN` from `.env`.
+
+## macOS + Docker Desktop
+
+Mac uses only Unix shell entrypoints and the Mac-specific config/Compose file:
+
+```bash
+cd /Users/mentat/qqshitbot
+scripts/mac/check-env.sh
+scripts/mac/start.sh
+scripts/mac/status.sh
+scripts/mac/logs.sh
+scripts/mac/console.sh
+scripts/mac/stop.sh
+```
+
+`scripts/mac/start.sh` copies `openclaw.mac.json` into the ignored runtime directory, seeds the diagnostic filter, validates the official QQ plugin, validates the config, and starts only `openclaw-gateway` plus `context-recovery`. It does not pull or start Ollama, Qwen, NVIDIA/CUDA, video, or image-fusion services. The persistent Mac volumes are named with the `qqshitbot-openclaw-mac_` prefix so they do not collide with the Windows local deployment.
+
+The Mac route is explicit: `sensenova-vision/sensenova-6.7-flash-lite` receives the current image, and `deepseek/deepseek-chat` receives the visual result plus the allowed QQ context to produce the final short reply. The SenseNova text route is only a text fallback. `scripts/sensenova_probe.py` can send a local test image as a data URL and prints only redacted status/availability; it does not prove a QQ attachment reached the Gateway.
+
+The Gateway remains token-authenticated. Host publication defaults to `127.0.0.1:${OPENCLAW_GATEWAY_PORT}`. To enable trusted-LAN access, set `OPENCLAW_GATEWAY_BIND_HOST` and `OPENCLAW_GATEWAY_PUBLIC_HOST` to the Mac LAN address, set `OPS_CONSOLE_BIND_HOST` and `OPS_CONSOLE_TOKEN`, and apply a macOS firewall rule. Binding `0.0.0.0` is allowed only with that protection; do not forward either port to the public Internet. The Operations Console requires authentication for every route when it is not loopback-bound and exposes only fixed read-only metadata.
+
+The Mac control panel reports macOS CPU, memory, and disk using native host collectors. GPU VRAM and Ollama are explicitly `not_applicable` for the cloud-vision deployment; they are not reported as zero or healthy. Windows browsers may use the Mac LAN address when LAN mode is explicitly enabled, but the browser never receives Docker Socket or arbitrary command access.
+
+For unattended operation, enable Docker Desktop's “Start Docker Desktop when you sign in” setting and keep the Mac connected to AC power. The Mac gateway and recovery services use `restart: unless-stopped`, so Docker restarts recover the containers without starting the Windows Qwen service. The console is a host Python process rather than a container; run `scripts/mac/install-launch-agent.sh` to keep it running after login and after a process failure, or remove it with `scripts/mac/uninstall-launch-agent.sh`. The LaunchAgent uses `--no-browser` and writes only its own process output to `~/Library/Logs/qqshitbot/`.
+
+Closing a Mac notebook lid normally puts macOS and the Docker Desktop Linux VM to sleep; no Compose setting can keep requests processing while the host is asleep. For lid-closed operation use supported clamshell mode (AC power plus an external display/keyboard/pointing device), verify the Mac remains awake, and do not treat `caffeinate` as a substitute for that hardware/power condition. A Mac that must run continuously without a logged-in user or sleep risk should be replaced by an always-on host. See [`docs/MAC_RUNTIME_STABILITY.md`](../../docs/MAC_RUNTIME_STABILITY.md) for the runbook and verification commands.
 
 ## Docker Compose commands
 

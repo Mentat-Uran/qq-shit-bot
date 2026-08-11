@@ -4,7 +4,7 @@
 
 - `.env`、Docker volume、会话数据库、完整日志、模型缓存和 QQ 私聊/群聊内容只存在本机忽略路径，不提交到 Git。
 - 诊断和健康报告只输出状态、计数、模型名和设备信息，不输出环境值、Authorization、QQ Secret 或原始日志。
-- Gateway Control UI 只绑定 `127.0.0.1`；QQ 直接消息和群消息继续使用 allowlist。
+- Gateway Control UI 和 Operations Console 默认只绑定 `127.0.0.1`；Mac 只有显式设置 LAN 地址后才发布到局域网，且 Operations Console 强制要求 `OPS_CONSOLE_TOKEN`。
 - `exec`、`read`、`write` 工具保持拒绝；群消息中的附件、转发内容和网页内容不具有运行时指令权限。
 
 ## 命令
@@ -12,11 +12,14 @@
 ```bash
 cd deploy/openclaw
 ./validate-env.sh --migrate --generate-token
+../../scripts/mac/check-env.sh --allow-placeholders  # 仅做 Mac 模板/Compose 预检时使用
 cd ../..
 python scripts/openclaw_diagnostic.py --mode preflight --pretty
 python scripts/openclaw_diagnostic.py --mode health --pretty
 python scripts/security_audit.py --json
 ```
+
+Mac 的 `scripts/mac/start.sh`、`stop.sh`、`status.sh`、`logs.sh` 和 `console.sh` 都使用固定的 `docker-compose.mac.yml`；浏览器只能访问控制台固定 REST 路由，不能接触 Docker Socket、任意 Shell、文件系统或容器网络。局域网模式不等于公网模式，禁止路由器端口转发。
 
 Windows 使用等价的 `powershell -ExecutionPolicy Bypass -File deploy/openclaw/Test-OpenClawEnvironment.ps1 -ApplyMigration -GenerateGatewayToken`，健康和安全报告命令仍使用仓库内 Python 脚本。两个环境校验器共享 `environment-contract.txt`；迁移只把已配置的旧别名复制到规范变量，且从不打印值。
 

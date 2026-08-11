@@ -5,6 +5,12 @@ OPENCLAW_QQBOT_PLUGIN|optional|latest
 OPENCLAW_GATEWAY_PORT|optional|
 OPENCLAW_GATEWAY_TOKEN|required|replace-with-a-random-token
 OPENCLAW_TZ|required|replace-with-timezone
+OPENCLAW_GATEWAY_BIND_HOST|optional|
+OPENCLAW_GATEWAY_PUBLIC_HOST|optional|
+OPS_CONSOLE_BIND_HOST|optional|
+OPS_CONSOLE_PORT|optional|
+OPS_CONSOLE_TOKEN|optional|replace-with-ops-console-token
+SENSENOVA_VISION_MODEL|optional|replace-with-sensenova-vision-model
 OPENCLAW_UID|optional|
 OPENCLAW_GID|optional|
 QQBOT_APP_ID|required|replace-with-qq-app-id

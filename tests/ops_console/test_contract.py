@@ -61,6 +61,9 @@ def test_frontend_theme_and_chinese_localization_contract():
     assert "queueConfiguration" in javascript
     assert "contextTokenConfiguration" in javascript
     assert "meter-unknown" in javascript
+    assert 'id="access-detail"' in html
+    assert "consoleInfo.bind" in javascript
+    assert "consoleInfo.port" in javascript
 
     assert 'html[data-theme="light"]' in styles
     assert "--panel-gradient-start" in styles
