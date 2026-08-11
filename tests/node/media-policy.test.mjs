@@ -45,6 +45,10 @@ test("group image selection keeps one relevant image", () => {
     quotedImage: { path: "quoted", contentType: "image/png" },
     recentImage: { path: "recent", contentType: "image/png" },
     text: "看看上面的图",
+  }), { path: "quoted", contentType: "image/png", source: "quote" });
+  assert.deepEqual(selectSingleImage({
+    currentUrls: ["current-1", "current-2"],
+    currentTypes: ["image/jpeg", "image/png"],
   }), { path: "current-1", contentType: "image/jpeg", source: "current" });
   assert.deepEqual(applySingleImageLimit({
     imageUrls: [],
@@ -81,4 +85,20 @@ test("the patcher's injected runtime policy follows the same fail-closed behavio
   assert.deepEqual(JSON.parse(JSON.stringify(runtime.selectRecentGroupImage([
     { attachments: [{ type: "image", localPath: "recent-group-image" }] },
   ], "看上面的图"))), { path: "recent-group-image", contentType: "image/png" });
+
+  const disabledRuntime = vm.runInNewContext(`${source}; ({ mergeSingleQuotedImage, imageMediaFromAttachments })`, {
+    fs$1: { readFileSync: () => '{"image":false,"video":false}' },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(disabledRuntime.mergeSingleQuotedImage({ imageUrls: [], imageMediaTypes: [] }, {
+    media: [{ path: "quoted-image", contentType: "image/png" }],
+  }, null, "看引用图"))), {
+    imageUrls: [],
+    imageMediaTypes: [],
+    videoAttachmentPaths: [],
+    videoAttachmentTypes: [],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(disabledRuntime.imageMediaFromAttachments([
+    { type: "file", localPath: "not-an-image" },
+    { type: "image", localPath: "actual-image" },
+  ]))), [{ path: "actual-image", contentType: "image/png" }]);
 });
