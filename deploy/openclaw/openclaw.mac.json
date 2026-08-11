@@ -17,20 +17,52 @@
   "agents": {
     "defaults": {
       "workspace": "/home/node/.openclaw/workspace",
-      "contextTokens": 131072,
+      "contextTokens": 32768,
       "timeoutSeconds": 900,
       "utilityModel": "",
+      "thinkingDefault": "medium",
+      "contextInjection": "continuation-skip",
+      "bootstrapMaxChars": 4500,
+      "bootstrapTotalMaxChars": 7500,
+      "bootstrapPromptTruncationWarning": "off",
+      "imageMaxDimensionPx": 768,
+      "imageQuality": "efficient",
+      "contextLimits": {
+        "postCompactionMaxChars": 800,
+        "toolResultMaxChars": 6000
+      },
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "10m",
+        "keepLastAssistants": 2,
+        "softTrimRatio": 0.25,
+        "hardClearRatio": 0.45,
+        "minPrunableToolChars": 800,
+        "softTrim": {
+          "maxChars": 1200,
+          "headChars": 400,
+          "tailChars": 400
+        },
+        "hardClear": {
+          "enabled": true,
+          "placeholder": "[旧工具结果已省略]"
+        }
+      },
       "model": {
-        "primary": "sensenova-token/deepseek-v4-flash",
-        "fallbacks": [
-          "deepseek/deepseek-chat"
-        ]
+        "primary": "deepseek/deepseek-v4-flash",
+        "fallbacks": []
       },
       "imageModel": "sensenova-vision/sensenova-6.7-flash-lite",
       "compaction": {
         "mode": "safeguard",
-        "keepRecentTokens": 20000,
-        "recentTurnsPreserve": 8
+        "keepRecentTokens": 8000,
+        "recentTurnsPreserve": 2,
+        "maxHistoryShare": 0.4,
+        "truncateAfterCompaction": true,
+        "postCompactionSections": [],
+        "memoryFlush": {
+          "enabled": false
+        }
       }
     }
   },
@@ -38,7 +70,7 @@
     "resetByType": {
       "group": {
         "mode": "idle",
-        "idleMinutes": 120
+        "idleMinutes": 60
       }
     }
   },
@@ -55,33 +87,14 @@
         "api": "openai-completions",
         "models": [
           {
-            "id": "deepseek-chat",
-            "name": "Official DeepSeek Chat (Mac text fallback)",
+            "id": "deepseek-v4-flash",
+            "name": "Official DeepSeek V4 Flash (Mac text generation)",
             "input": [
               "text"
             ],
             "contextWindow": 131072,
-            "maxTokens": 2048
-          }
-        ]
-      },
-      "sensenova-token": {
-        "baseUrl": "https://token.sensenova.cn/v1",
-        "apiKey": {
-          "source": "env",
-          "provider": "default",
-          "id": "SENSENOVA_API_KEY"
-        },
-        "api": "openai-completions",
-        "models": [
-          {
-            "id": "deepseek-v4-flash",
-            "name": "SenseNova DeepSeek V4 Flash (Mac text primary)",
-            "input": [
-              "text"
-            ],
-            "contextWindow": 1048576,
-            "maxTokens": 2048
+            "maxTokens": 2048,
+            "reasoning": true
           }
         ]
       },
@@ -148,15 +161,15 @@
       "groupPolicy": "open",
       "allowFrom": ["*"],
       "groupAllowFrom": ["*"],
-      "contextVisibility": "all",
-      "historyLimit": 32,
+      "contextVisibility": "allowlist_quote",
+      "historyLimit": 1,
       "groups": {
         "*": {
           "requireMention": true,
-          "ignoreOtherMentions": false,
-          "historyLimit": 32,
+          "ignoreOtherMentions": true,
+          "historyLimit": 1,
           "commandLevel": "safety",
-          "prompt": "群聊上下文策略：普通群消息即使没有艾特，也要作为待处理上下文持续采集和保留；只有被艾特、回复机器人、私聊，或主动巡检才调用模型。每条新的艾特消息默认视为新话题，只使用当前消息和明确引用的内容，不得因为上一条消息有图片就自动附加上一张图片。表情包、梗图和普通图片默认只给一句短点评或反应，不要复述画面、OCR或写图片说明；只有当前消息明确询问图片内容时才进行视觉分析。被艾特、回复机器人或私聊时，除非触发 AGENTS.md 的禁止规则或其他安全规则，必须正常回答，不得输出 NO_REPLY；只有主动巡检任务在判断没有必要发言时才允许只输出 NO_REPLY。主动巡检时先通读最近群消息，判断是否有需要补充、承接、纠错或活跃气氛的内容；不要为了刷存在感重复别人已经说过的内容。每次主动发言最多拆成 1 到 3 条短消息，优先一条解决。涉及 QQ 小程序时，先提取标题并搜索该标题，再根据搜索结果解读；搜不到时明确说明。古代政治相关问题按 AGENTS.md 的禁止规则处理。Internal error policy: never send provider, model, API, HTTP, 429, quota, rate-limit, busy, safety, tool, trace, stack, or fallback diagnostics to QQ. If a route fails, use a successful fallback answer；if every route fails, send no diagnostic text.",
+          "prompt": "每次艾特按独立话题处理，只看当前消息和明确引用；群内未艾特消息最多保留最近1条，不主动补全旧话题。明确引用若实际带图，优先使用那1张；没有引用时，仅当当前文字明确指向上图或刚才的图片才考虑最近1张，否则不带旧图。普通图片只给短反应，明确问画面时才分析。被艾特、回复机器人或私聊必须正常回应，不输出 NO_REPLY；后台巡检无事才可输出 NO_REPLY。政治或高风险问题用俏皮打岔，不复述、解释或搜索。provider、模型、API、限流、配额、工具和堆栈细节只留日志，不发 QQ。",
           "tools": {
             "deny": [
               "exec",
@@ -189,7 +202,7 @@
             "image"
           ],
           "timeoutSeconds": 180,
-          "maxChars": 800
+          "maxChars": 400
         }
       ],
       "video": {
@@ -200,13 +213,13 @@
   "messages": {
     "suppressToolErrors": true,
     "inbound": {
-      "debounceMs": 2500
+      "debounceMs": 700
     },
     "queue": {
-      "mode": "collect",
-      "debounceMs": 2500,
-      "cap": 32,
-      "drop": "summarize"
+      "mode": "steer",
+      "debounceMs": 700,
+      "cap": 2,
+      "drop": "old"
     }
   }
 }
