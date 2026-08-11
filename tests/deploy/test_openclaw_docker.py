@@ -92,18 +92,28 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     config = load_openclaw_config()
 
     defaults = config["agents"]["defaults"]
-    assert defaults["contextTokens"] == 131072
+    assert defaults["contextTokens"] == 32768
     assert defaults["timeoutSeconds"] == 900
     assert defaults["utilityModel"] == ""
     assert defaults["imageModel"] == "local-vision/qwen2.5vl:7b"
+    assert defaults["contextInjection"] == "continuation-skip"
+    assert defaults["bootstrapMaxChars"] == 4500
+    assert defaults["bootstrapTotalMaxChars"] == 7500
+    assert defaults["imageMaxDimensionPx"] == 768
+    assert defaults["imageQuality"] == "efficient"
+    assert defaults["contextLimits"] == {"postCompactionMaxChars": 800, "toolResultMaxChars": 6000}
     assert defaults["compaction"] == {
         "mode": "safeguard",
-        "keepRecentTokens": 20000,
-        "recentTurnsPreserve": 8,
+        "keepRecentTokens": 8000,
+        "recentTurnsPreserve": 2,
+        "maxHistoryShare": 0.4,
+        "truncateAfterCompaction": True,
+        "postCompactionSections": [],
+        "memoryFlush": {"enabled": False},
     }
     assert config["session"]["resetByType"]["group"] == {
         "mode": "idle",
-        "idleMinutes": 120,
+        "idleMinutes": 60,
     }
 
     local_qwen = config["models"]["providers"]["local-vision"]["models"][0]
@@ -111,15 +121,14 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     assert local_qwen["compat"]["supportsTools"] is False
 
     qqbot = config["channels"]["qqbot"]
-    assert qqbot["contextVisibility"] == "all"
-    assert qqbot["historyLimit"] == 32
-    assert qqbot["groups"]["*"]["historyLimit"] == 32
+    assert qqbot["contextVisibility"] == "allowlist_quote"
+    assert qqbot["historyLimit"] == 1
+    assert qqbot["groups"]["*"]["historyLimit"] == 1
+    assert qqbot["groups"]["*"]["ignoreOtherMentions"] is True
     assert "NO_REPLY" in qqbot["groups"]["*"]["prompt"]
-    assert "每条新的艾特消息默认视为新话题" in qqbot["groups"]["*"]["prompt"]
-    assert "表情包、梗图和普通图片默认只给一句短点评或反应" in qqbot["groups"]["*"]["prompt"]
-    assert "被艾特、回复机器人或私聊时" in qqbot["groups"]["*"]["prompt"]
-    assert "不得输出 NO_REPLY" in qqbot["groups"]["*"]["prompt"]
-    assert "never send provider, model, API, HTTP, 429" in qqbot["groups"]["*"]["prompt"]
+    assert "每次艾特按独立话题处理" in qqbot["groups"]["*"]["prompt"]
+    assert "明确引用若实际带图" in qqbot["groups"]["*"]["prompt"]
+    assert "政治或高风险问题用俏皮打岔" in qqbot["groups"]["*"]["prompt"]
 
     diagnostic_filter = (DEPLOY_DIR / "qq-diagnostic-filter.mjs").read_text(encoding="utf-8")
     assert '"reply_payload_sending"' in diagnostic_filter
@@ -142,6 +151,10 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     assert "qqbot-video-mention-gate-v1" in history_media_patch
     assert "filterVideoByMention" in history_media_patch
     assert "effectiveWasMentioned === true" in history_media_patch
+    assert "qqbot-single-image-context-v1" in history_media_patch
+    assert "imageMediaFromAttachments" in history_media_patch
+    assert "selectRecentGroupImage" in history_media_patch
+    assert "processed = mergeSingleQuotedImage(processed" in history_media_patch
 
     context_recovery = (DEPLOY_DIR / "context-recovery.mjs").read_text(encoding="utf-8")
     context_recovery_core = (DEPLOY_DIR / "context-recovery-core.mjs").read_text(encoding="utf-8")
@@ -151,12 +164,12 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     assert "OPENCLAW_GATEWAY_URL" in context_recovery
     assert "OPENCLAW_ALLOW_INSECURE_PRIVATE_WS" in context_recovery
 
-    assert config["messages"]["inbound"]["debounceMs"] == 2500
+    assert config["messages"]["inbound"]["debounceMs"] == 700
     assert config["messages"]["queue"] == {
-        "mode": "collect",
-        "debounceMs": 2500,
-        "cap": 32,
-        "drop": "summarize",
+        "mode": "steer",
+        "debounceMs": 700,
+        "cap": 2,
+        "drop": "old",
     }
     image_models = config["tools"]["media"]["models"]
     assert image_models == [
@@ -165,7 +178,7 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
             "model": "qwen2.5vl:7b",
             "capabilities": ["image"],
             "timeoutSeconds": 180,
-            "maxChars": 800,
+            "maxChars": 400,
         }
     ]
     assert config["tools"]["media"]["video"]["enabled"] is False
@@ -186,6 +199,7 @@ def test_env_example_pins_matching_openclaw_and_plugin_versions():
     assert "QQBOT_CLIENT_SECRET=replace-with-qq-app-secret" in env_text
     assert "QQBOT_ALLOWED_USER_OPENID=" in env_text
     assert "QQBOT_ALLOWED_MEMBER_OPENID=" in env_text
+    assert "QQBOT_PROACTIVE_REVIEW_ENABLED=false" in env_text
     assert "DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in env_text
     assert "microsoft/Mage-VL" not in env_text
     assert "nvidia/LocateAnything-3B" not in env_text
@@ -206,6 +220,7 @@ def test_setup_invokes_openclaw_only_through_docker_compose():
     assert "pnpm install" not in setup
     assert 'case "$home_channel" in' in setup
     assert "''|replace-with-*)" in setup
+    assert "QQBOT_PROACTIVE_REVIEW_ENABLED" in setup
 
 
 def test_setup_requires_fallback_key_and_migrates_legacy_media_config():
@@ -215,6 +230,7 @@ def test_setup_requires_fallback_key_and_migrates_legacy_media_config():
     assert "--migrate --generate-token" in setup
     assert "--declaration-key" in setup
     assert "qqbot-proactive-review-night" in setup
+    assert "skipping proactive review job registration" in setup
     assert "environment-contract.txt" in (DEPLOY_DIR / "validate-env.sh").read_text()
     assert "DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in (DEPLOY_DIR / ".env.example").read_text()
     assert "mage-video-cli\\.mjs|nvidia-image-cli\\.mjs" in setup
@@ -233,6 +249,7 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert "fallback" in watcher.lower()
     assert "deepseek/deepseek-chat" not in watcher
     assert "*/10 8-23,0-1 * * *" in launcher
+    assert "QQBOT_PROACTIVE_REVIEW_ENABLED" in launcher
     assert "*/30 2-7 * * *" in launcher
     assert "Asia/Shanghai" in launcher
     assert "environment:" in overlay
@@ -295,5 +312,25 @@ def test_windows_batch_launcher_points_to_openclaw_startup_script():
     assert "migrate_env_alias DEEPSEEK_API_KEY HERMES_DEEPSEEK_API_KEY" in launcher
     assert "migrate_env_alias QQBOT_HOME_CHANNEL QQBOT_GROUP_OPENID" in launcher
     assert 'copy /y "openclaw.json" "runtime\\config\\openclaw.json" >nul\nif errorlevel 1 goto :fail_after_pushd' in launcher
-    assert 'copy /y "%PROJECT_DIR%\\AGENTS.md" "runtime\\workspace\\AGENTS.md" >nul\nif errorlevel 1 goto :fail_after_pushd' in launcher
+    assert 'copy /y "%DEPLOY_DIR%\\bot-workspace\\AGENTS.md" "runtime\\workspace\\AGENTS.md" >nul\nif errorlevel 1 goto :fail_after_pushd' in launcher
     assert 'copy /y "%PROJECT_DIR%\\SOUL.md" "runtime\\workspace\\SOUL.md" >nul\nif errorlevel 1 goto :fail_after_pushd' in launcher
+
+
+def test_bot_runtime_agents_is_separate_from_repository_agents():
+    repository_agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    bot_agents_path = DEPLOY_DIR / "bot-workspace" / "AGENTS.md"
+    bot_agents = bot_agents_path.read_text(encoding="utf-8")
+    assert bot_agents_path.exists()
+    assert "QQ Group Runtime Rules" in bot_agents
+    assert "QQ Group Runtime Rules" not in repository_agents
+    assert "Codex" in repository_agents
+    assert "bot-workspace/AGENTS.md" in repository_agents
+
+    setup = (DEPLOY_DIR / "setup.sh").read_text(encoding="utf-8")
+    docker_launcher = (DEPLOY_DIR / "Start-OpenClawDocker.ps1").read_text(encoding="utf-8")
+    bind_launcher = (ROOT / "scripts" / "windows" / "Bind-OpenClawQQBot.ps1").read_text(encoding="utf-8")
+    mac_launcher = (ROOT / "scripts" / "mac" / "start.sh").read_text(encoding="utf-8")
+    assert "bot-workspace/AGENTS.md" in setup
+    assert "bot-workspace\\AGENTS.md" in docker_launcher
+    assert "bot-workspace\\AGENTS.md" in bind_launcher
+    assert "bot-workspace/AGENTS.md" in mac_launcher
