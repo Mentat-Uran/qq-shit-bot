@@ -98,12 +98,8 @@ if [ -f "$RUNTIME_DIR/config/openclaw.json" ]; then
     echo "Refreshing $RUNTIME_DIR/config/openclaw.json from the versioned defaults." >&2
 fi
 cp "$SCRIPT_DIR/openclaw.json" "$RUNTIME_DIR/config/openclaw.json"
-if [ ! -f "$RUNTIME_DIR/workspace/AGENTS.md" ]; then
-    cp "$SCRIPT_DIR/bot-workspace/AGENTS.md" "$RUNTIME_DIR/workspace/AGENTS.md"
-fi
-if [ ! -f "$RUNTIME_DIR/workspace/SOUL.md" ]; then
-    cp "$REPO_ROOT/SOUL.md" "$RUNTIME_DIR/workspace/SOUL.md"
-fi
+cp "$SCRIPT_DIR/bot-workspace/AGENTS.md" "$RUNTIME_DIR/workspace/AGENTS.md"
+cp "$REPO_ROOT/SOUL.md" "$RUNTIME_DIR/workspace/SOUL.md"
 chmod 600 "$RUNTIME_DIR/config/openclaw.json" "$RUNTIME_DIR/workspace/AGENTS.md" "$RUNTIME_DIR/workspace/SOUL.md"
 
 cd "$SCRIPT_DIR"

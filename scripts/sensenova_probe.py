@@ -24,7 +24,7 @@ from typing import Any
 SENSENOVA_URL = "https://token.sensenova.cn/v1/chat/completions"
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 VISION_MODEL = "sensenova-6.7-flash-lite"
-TEXT_MODEL = "deepseek-v4-flash"
+TEXT_MODEL = "deepseek-v4-pro"
 THINKING_MODE = "enabled"
 PLACEHOLDER = "replace-with-"
 
