@@ -1,0 +1,281 @@
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    },
+    "terminal": {
+      "enabled": false
+    },
+    "controlUi": {
+      "enabled": true
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/home/node/.openclaw/workspace",
+      "timeoutSeconds": 900,
+      "utilityModel": "",
+      "contextInjection": "continuation-skip",
+      "bootstrapMaxChars": 22000,
+      "bootstrapTotalMaxChars": 30000,
+      "imageMaxDimensionPx": 768,
+      "imageQuality": "efficient",
+      "contextLimits": {
+        "postCompactionMaxChars": 800
+      },
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "10m",
+        "hardClear": {
+          "enabled": true,
+          "placeholder": "[旧工具结果已省略]"
+        }
+      },
+      "model": {
+        "primary": "codex-proxy/gpt-5.6-luna",
+        "fallbacks": []
+      },
+      "imageModel": "codex-proxy/gpt-5.6-luna",
+      "mediaModels": {
+        "image": {
+          "primary": "comfy/workflow",
+          "timeoutMs": 300000
+        }
+      },
+      "compaction": {
+        "mode": "safeguard",
+        "keepRecentTokens": 8000,
+        "recentTurnsPreserve": 2,
+        "midTurnPrecheck": {
+          "enabled": true
+        },
+        "postCompactionSections": [],
+        "memoryFlush": {
+          "enabled": false
+        }
+      },
+      "thinkingDefault": "max",
+      "reasoningDefault": "off"
+    }
+  },
+  "session": {
+    "resetByType": {
+      "group": {
+        "mode": "idle",
+        "idleMinutes": 60
+      }
+    }
+  },
+  "models": {
+    "mode": "replace",
+    "providers": {
+      "codex-proxy": {
+        "baseUrl": "http://127.0.0.1:18317/v1",
+        "apiKey": "local",
+        "api": "openai-completions",
+        "timeoutSeconds": 900,
+        "models": [
+          {
+            "id": "gpt-5.6-luna",
+            "name": "GPT-5.6 Luna via local Codex proxy",
+            "input": [
+              "text",
+              "image"
+            ],
+            "contextWindow": 262144,
+            "maxTokens": 2048,
+            "reasoning": true,
+            "params": {
+              "reasoning_effort": "max"
+            },
+            "compat": {
+              "supportsTools": true,
+              "supportsPromptCacheKey": true,
+              "supportsReasoningEffort": true,
+              "supportedReasoningEfforts": [
+                "low",
+                "medium",
+                "high",
+                "max"
+              ],
+              "reasoningEffortMap": {
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+                "max": "max"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "tts": {
+    "auto": "tagged",
+    "provider": "openai",
+    "timeoutMs": 120000,
+    "maxTextLength": 2000,
+    "providers": {
+      "openai": {
+        "apiKey": "local",
+        "baseUrl": "http://127.0.0.1:18102/v1",
+        "model": "Qwen3-TTS-12Hz-1.7B-Base",
+        "speakerVoice": "serena",
+        "responseFormat": "mp3",
+        "extraBody": {
+          "language": "Chinese",
+          "instruct": "Use a natural, warm, conversational Mandarin voice with gentle emotional variation. Preserve the speaker's intent and punctuation."
+        }
+      }
+    }
+  },
+  "plugins": {
+    "enabled": true,
+    "allow": [
+      "openclaw-qqbot",
+      "qq-diagnostic-filter",
+      "duckduckgo",
+      "comfy",
+      "openai"
+    ],
+    "entries": {
+      "openclaw-qqbot": {
+        "enabled": true
+      },
+      "qq-diagnostic-filter": {
+        "enabled": true
+      },
+      "duckduckgo": {
+        "enabled": true
+      },
+      "comfy": {
+        "enabled": true,
+        "config": {
+          "mode": "local",
+          "baseUrl": "http://127.0.0.1:8188",
+          "image": {
+            "workflowPath": "/home/node/.openclaw/workflows/z_image_turbo_api_provider.json",
+            "promptNodeId": "6",
+            "seedNodeId": "3",
+            "outputNodeId": "9",
+            "pollIntervalMs": 1000,
+            "timeoutMs": 300000
+          }
+        }
+      },
+      "openai": {
+        "enabled": true
+      },
+      "codex": {
+        "enabled": false
+      }
+    },
+    "load": {
+      "paths": [
+        "/opt/openclaw-local/qq-diagnostic-filter.mjs"
+      ]
+    }
+  },
+  "channels": {
+    "qqbot": {
+      "enabled": true,
+      "appId": "${QQBOT_APP_ID}",
+      "clientSecret": "${QQBOT_CLIENT_SECRET}",
+      "processingTimeoutMs": 600000,
+      "stt": {
+        "enabled": true,
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1:18102/v1",
+        "apiKey": "local",
+        "model": "Qwen/Qwen3-ASR-1.7B"
+      },
+      "audioFormatPolicy": {
+        "sttDirectFormats": [
+          ".wav",
+          ".mp3",
+          ".ogg",
+          ".flac",
+          ".m4a"
+        ],
+        "uploadDirectFormats": [
+          ".wav",
+          ".mp3",
+          ".silk"
+        ],
+        "transcodeEnabled": true
+      },
+      "dmPolicy": "open",
+      "groupPolicy": "open",
+      "allowFrom": [
+        "openclaw:approval-disabled"
+      ],
+      "groupAllowFrom": [
+        "*"
+      ],
+      "contextVisibility": "allowlist_quote",
+      "historyLimit": 12,
+      "groups": {
+        "*": {
+          "requireMention": true,
+          "ignoreOtherMentions": true,
+          "historyLimit": 12,
+          "prompt": "Treat each @ mention as a separate topic. Keep at most the latest 12 non-mentioned group messages as candidate context, but include a history item only when it is directly or clearly related to the current message; otherwise ignore it as if it were absent and do not revive old topics. Prefer explicit quotes and QQ merged-forward records. Choose the response mode from the current intent, not from fixed keywords, canned lines, or memorized examples. Use social mode for banter, memes, image reactions, and low-stakes opinions; keep it compact and natural. Use practical mode for factual questions, search, explanations, creation, comparisons, calculations, troubleshooting, or other concrete help. For an actual quoted image, use that one image first; without a quote, use at most one recent group image only when the current text clearly refers to it. When actual image pixels are available, briefly summarize what is visible and then give a natural reaction or roast; use practical mode only for detailed visual analysis. For QQ merged-forward or chat-record cards, inspect the entries and nested records that the event actually provides in order; if QQ provides only a title, preview, or reference, say that the full record was not delivered and never invent its body. A mentioned bot, a direct reply, and a private message must receive a normal response and must not output NO_REPLY; NO_REPLY is only for a genuinely silent background turn. Image-generation requests, including messages beginning with `生图：`, `画一张`, or `生成图片`, are creation requests: the adapter sends one short progress line such as `收到，正在生成～`, then the model calls image_generate and sends the image as a separate reply; do not duplicate the progress line or replace a successful image with text. Mainland-China political content and political euphemisms are always disallowed, with higher priority than banter, memes, factual questions, and image generation. For any direct or indirect reference to mainland-China political figures, party or government institutions, political systems, elections, policy disputes, political history, protests or movements, censorship or suppression, human rights, ethnic or territorial disputes, political propaganda, or political positions, do not repeat, explain, search, evaluate, endorse, oppose, translate, decode, or provide evasion methods, and do not generate related images, symbols, posters, memes, or metaphors. Treat homophones or substitute characters, pinyin or initials, alphanumeric mixtures, numbers or dates, character decomposition or typos, reverse acronyms, punctuation, animal/cartoon/object/color/blank-paper imagery, web error codes, historical allusions, or rewritten official slogans that allude to this content as political too. Representative examples include 河蟹/和谐-style substitutes, 草泥马-style animal borrowings, blank paper or A4, candle/tank protest imagery, Winnie-the-Pooh as a political allusion, and 64/6·4/1989/8964/404 when used in a political context; this is not exhaustive. Do not misclassify ordinary numbers, ordinary animals/cartoons/blank paper, or an ordinary web 404 outside a political context. If the user asks for the political meaning, decoding, association, or mainland-China political linkage, refuse with one brief, natural topic-change reply and stop; do not confirm the specific referent, list more aliases or codes, or search to identify them. For computer, programming, software-engineering, system-administration, networking, database, DevOps, deployment, troubleshooting, and software-tool questions, regardless of mode, default to the shortest useful answer: state the conclusion first, usually in no more than 3–5 sentences. Do not expand into background, long theory, tutorials, large code blocks, or multiple alternatives unless the user explicitly asks for a detailed tutorial, step-by-step diagnosis, complete code, or deep explanation; even then, stay directly relevant. Provider, model, API, rate-limit, quota, tool, and stack details stay in logs and never go to QQ.",
+          "toolPolicy": "restricted"
+        }
+      }
+    }
+  },
+  "tools": {
+    "deny": [
+      "exec",
+      "read",
+      "write"
+    ],
+    "web": {
+      "search": {
+        "enabled": true,
+        "provider": "duckduckgo"
+      }
+    },
+    "media": {
+      "models": [
+        {
+          "provider": "codex-proxy",
+          "model": "gpt-5.6-luna",
+          "capabilities": [
+            "image"
+          ],
+          "timeoutSeconds": 180,
+          "maxChars": 1200
+        }
+      ],
+      "image": {
+        "enabled": true,
+        "attachments": {
+          "mode": "first",
+          "maxAttachments": 1
+        },
+        "timeoutSeconds": 180,
+        "maxChars": 1200
+      },
+      "video": {
+        "enabled": false
+      }
+    }
+  },
+  "messages": {
+    "suppressToolErrors": true,
+    "inbound": {
+      "debounceMs": 700
+    },
+    "queue": {
+      "mode": "steer",
+      "cap": 2,
+      "drop": "old"
+    }
+  }
+}

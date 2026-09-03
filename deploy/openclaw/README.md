@@ -1,6 +1,6 @@
 # qq-shit-bot + Docker
 
-This deployment runs OpenClaw and the official `@openclaw/qqbot` plugin entirely in Docker. It does not install OpenClaw, Node.js packages, or the QQ plugin on the host.
+This deployment runs OpenClaw and the official Tencent QQBot 2.x plugin `@tencent-connect/openclaw-qqbot` entirely in Docker. It does not install OpenClaw, Node.js packages, or the QQ plugin on the host.
 
 This is the only supported deployment family for the QQ bot. Windows keeps the Qwen/Ollama Compose path below; macOS uses the separate `docker-compose.mac.yml` path and does not start a local vision service. OpenClaw and all QQ bot services run in Docker; the host only needs Docker Desktop or Docker Engine.
 
@@ -8,15 +8,15 @@ The Compose project name is `qq-shit-bot`, matching the GitHub remote repository
 
 ## What it configures
 
-- OpenClaw `2026.7.1` and `@openclaw/qqbot` `2026.7.1`, pinned together.
+- OpenClaw `2026.8.2` and the latest stable `@tencent-connect/openclaw-qqbot` `2.0.3`; the core and plugin follow their respective stable release tracks.
 - Windows uses SenseNova `deepseek-v4-flash` as the primary paid text-model route with official DeepSeek `deepseek-chat` as fallback. The Mac route uses SenseNova only for image understanding and official DeepSeek `deepseek-v4-flash` for final text generation, with the default thinking level set to `medium`. Keys are read from the ignored `.env` file and are not stored in the repository.
 - `bot-workspace/AGENTS.md` and the repository's `SOUL.md` as the OpenClaw workspace context. The root `AGENTS.md` is reserved for repository development and is never copied to the Bot.
 - Token-authenticated Control UI published only on `127.0.0.1`.
 - OpenClaw's operator terminal disabled.
 - `exec`, `read`, and `write` agent tools denied globally and in QQ groups.
-- Only the official QQ plugin and the local QQ diagnostic filter are allowlisted by default.
+- Only the official QQ and DuckDuckGo plugins plus the local QQ diagnostic filter are allowlisted by default.
 - The unrelated bundled Codex extension is explicitly disabled because it is not needed by the QQ bot and is incompatible with this pinned gateway runtime.
-- Web search uses OpenClaw's bundled no-key DuckDuckGo provider; no search credential is copied or exposed.
+- Web search uses the official no-key `@openclaw/duckduckgo-plugin` `2026.8.2`; no search credential is copied or exposed.
 - A local `reply_payload_sending` hook suppresses error and model-fallback payloads in QQ groups; the full diagnostic remains in the gateway log for local troubleshooting.
 - QQ direct messages and group mentions are open to everyone by default (`dmPolicy`/`groupPolicy` = `open`); group replies still require an @ mention. Re-enable the owner allowlist by setting `dmPolicy`/`groupPolicy` to `allowlist` and adding the OpenIDs to `allowFrom`/`groupAllowFrom`.
 - Startup model discovery disabled because all providers are declared explicitly; model loading still occurs on the first request.
@@ -51,6 +51,160 @@ The Unix setup script uses `environment-contract.txt`; the Windows BAT launcher 
 The script creates `runtime/`, copies the repository persona files, installs the official QQ plugin inside a one-shot OpenClaw container, validates the config, ensures the in-project `qwen-vision` service has `qwen2.5vl:7b`, and starts the gateway plus the context-recovery sidecar. It accepts either the Docker Compose plugin (`docker compose`) or the standalone `docker-compose` command. Secrets and runtime state remain under ignored local paths.
 
 Open the Control UI at `http://127.0.0.1:18789` and authenticate with `OPENCLAW_GATEWAY_TOKEN` from `.env`.
+
+## Linux host + existing Codex local proxy
+
+On a Linux host that already runs the Codex-compatible local proxy at
+`127.0.0.1:18317`, use the host-specific overlay instead of the default
+SenseNova/DeepSeek + Qwen path:
+
+```bash
+cd deploy/openclaw
+./start-codex.sh
+```
+
+This overlay keeps the repository's complete English `SOUL.md`, routes text
+and image requests to `codex-proxy/gpt-5.6-luna` with `max` thinking, and
+uses the official no-key `@openclaw/duckduckgo-plugin` `2026.8.2`. The local model catalog
+declares the same route as accepting text and image input; `qwen-vision` is not
+started for this overlay. Qwen3-TTS and Qwen3-ASR are started on demand by the
+loopback GPU gate. It enables bounded tool-result
+pruning, safeguard compaction, a declared 262,144-token context window, a
+twelve-message QQ group history candidate window with a local
+bounded prefilter, a stable per-session provider prompt-cache key, a small
+steer queue, and a
+60-minute group idle reset. It does not start `qwen-vision` and does not
+require the unused SenseNova or DeepSeek credentials.
+
+The persona name is `qq-shit-bot`. Its full English prompt selects between two
+behaviors from the current message: social mode keeps banter, memes, and
+low-stakes reactions compact, and for actual images it first summarizes visible
+content before adding a context-fitting reaction or roast; practical mode handles
+explicit search, explanation, writing, comparison, coding, troubleshooting, and
+other concrete requests at a normal useful length. Mode selection follows intent
+and context instead of a fixed keyword list or reply template. Social mode has
+no hard character cap, but it should not become a long essay. When a quoted or
+recent QQ image is represented only by a signed `multimedia.nt.qq.com.cn`
+download URL, the overlay fetches that exact QQ media endpoint into a local
+image file and puts it into OpenClaw's canonical image-media context before
+model processing; it does not pass the signed URL to the
+generic image tool or disable global SSRF protection. The runtime workspace
+keeps the same distinction and still denies command execution, file access,
+   host control, and private-data disclosure. A QQ merged-forward/chat-record card is
+   recursively expanded when the event contains its message nodes; a title, preview,
+   or record reference alone is reported as incomplete instead of being treated as
+   the full record.
+
+The gateway and recovery sidecar use host networking only so the containers
+can reach the loopback-only Codex proxy; OpenClaw itself remains bound to
+`127.0.0.1:18789`. On this host, the gateway also enables Node's environment
+proxy support and defaults web-search traffic to the existing loopback FlClash
+HTTP proxy at `127.0.0.1:7890`; the QQ control API, local model proxy, and local
+addresses stay direct through `NO_PROXY`; the signed QQ multimedia host is
+deliberately proxied for the image-specific recovery path. Override `OPENCLAW_HTTP_PROXY`,
+`OPENCLAW_HTTPS_PROXY`, or `OPENCLAW_NO_PROXY` only when the local network
+layout differs. The QQ AppID/AppSecret still belong only in the ignored `.env`
+file. Use the same Compose overlay for later checks or shutdown:
+
+```bash
+docker compose --env-file .env \
+  -f docker-compose.yml -f docker-compose.local.yml \
+  -f docker-compose.codex.yml ps
+docker compose --env-file .env \
+  -f docker-compose.yml -f docker-compose.local.yml \
+  -f docker-compose.codex.yml down
+```
+
+### TTS 朗读与语调
+
+The QQ feature menu keeps TTS as an explicit action rather than a conversation
+mode. `🔊/🔇` voice-mode switches are intentionally not present: ordinary text
+replies remain text-only. Use `读：内容` for a native QQ voice message, or use
+`温柔读：内容`、`播音读：内容`、`戏剧读：内容`、`正常读：内容` for a one-off
+explicit tone. The menu's `温柔语调`、`播音语调`、`戏剧语调`、`正常语调`
+buttons select the tone used by a later bare `读：内容` request and by an
+automatic voice reply in the current private chat or group; an explicit styled
+prefix takes precedence. `当前语调` reports the selection.
+
+When a QQ voice attachment is successfully transcribed, the normal AI turn is
+run once and the final text-only answer is converted at the delivery boundary
+to one native QQ voice message. The model must not emit TTS tags for this path.
+If the local TTS service is unavailable, the same answer falls back to one text
+message. Failed or unavailable transcription stays a normal text/fallback turn;
+it does not create an automatic voice reply.
+
+The TTS endpoint remains the loopback-only OpenAI-compatible gate at
+`127.0.0.1:18102/v1`. The configured Qwen3-TTS speaker is `serena`; the menu
+changes delivery tone/instruction, not the underlying speaker identity. The
+gate releases ComfyUI's models before starting either Qwen service, and only one
+of TTS, ASR, or ComfyUI owns the GPU at a time. The first voice message after a cold start
+can take about two to three minutes while Qwen3-ASR loads; later messages reuse
+the warmed ASR service until TTS or ComfyUI needs the GPU. The default ASR
+limits (`0.75` GPU utilization, `2048` max model length, eager mode) are tuned
+for the host's 8 GiB GPU and can be overridden with
+`QWEN_ASR_GPU_MEMORY_UTILIZATION` and `QWEN_ASR_MAX_MODEL_LEN` in `.env`.
+
+### 群聊小游戏：海龟汤、成语接龙和猜成语
+
+Linux Codex overlay includes a CPU-only `qqbot-game` sidecar and exposes it
+only on `127.0.0.1:18104`. The game engine is the published
+[`nonebot-plugin-ai-turtle-soup` 1.0.9](https://github.com/xxtg666/nonebot-plugin-ai-turtle-soup),
+so session state, yes/no judging, hints, progress, and multiplayer session
+separation come from the reusable upstream package rather than a new ad-hoc
+game implementation. The QQ interactive menu adds `小游戏`, `开始海龟汤`, and
+`结束当前游戏` buttons; text controls are `小游戏`, `开始海龟汤 [主题/提示词]`, `开始成语接龙`,
+`猜成语`, `提示`, `查看进度`, and `放弃`. During a turtle-soup game, @mention
+the bot with a yes/no question. During either text game, send a four-character
+idiom directly; the adapter consumes the message as the next move.
+
+The turtle-soup player-facing payload deliberately contains only the surface
+(`汤面`), never the catalog title. This applies to start and progress replies;
+the title remains an internal field for upstream compatibility and optional theme
+matching only.
+
+The two text-first games use the pinned MIT [`China-idiom`](https://github.com/sfyc23/China-idiom)
+catalog. `成语接龙` starts with a word from the catalog, requires a new four-character
+idiom beginning with the previous word's last character, and accepts `同音` as an
+optional looser mode. `猜成语` gives the whole group one hidden four-character answer,
+allows ten shared guesses, uses `🟩/🟨/⬜` feedback, reveals one position per hint, and
+keeps a small in-memory leaderboard. The rule adapter and its upstream/license notes
+are in [`games/ai-turtle-soup/chat_games.py`](games/ai-turtle-soup/chat_games.py) and
+[`games/ai-turtle-soup/CHAT_GAMES_UPSTREAM.md`](games/ai-turtle-soup/CHAT_GAMES_UPSTREAM.md).
+
+The default mode starts immediately from a 50-puzzle local catalog. The first
+five are adapted public sample puzzles whose source project declares the
+samples [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/legalcode.zh-Hans);
+the next fifteen are original short daily scenarios and the final thirty are
+original suspense/thriller/horror scenarios tagged with all three category
+labels. A theme prompt is parsed into category aliases and catalog-scene
+intersections, so `开始海龟汤 悬疑惊悚恐怖` selects the horror slice and
+`开始海龟汤 恐怖医院` narrows it to hospital scenes. The
+attribution and field conversion are recorded in
+[`games/ai-turtle-soup/UPSTREAM.md`](games/ai-turtle-soup/UPSTREAM.md). LunaMax
+(`gpt-5.6-luna`, `reasoning_effort=max`) is used for each host judgment, so the
+game still has an LLM referee without making startup depend on a long puzzle
+authoring request. If you want a newly generated themed puzzle, set
+`GAME_PUZZLE_SOURCE=ai` in `.env` and restart the Codex overlay. That mode
+performs a bounded DuckDuckGo title/snippet search and asks LunaMax to adapt
+the references; search text is treated as untrusted input and is never sent
+verbatim to QQ. If the AI authoring request reaches its 45-second budget, the
+sidecar falls back to the same public sample pool and labels that response as
+an automatic fallback. The game sidecar has no GPU devices and does not participate in
+the TTS/ASR/ComfyUI GPU lease. Its in-memory games are cleared if the sidecar
+restarts. Local-pool selection is rotated independently for each QQ group (and
+private conversation) and persisted as opaque puzzle keys under
+`runtime/game-state`; the persisted group key is hashed. Within one group, a
+surface is not selected again until the full 50-puzzle catalog has been used.
+If a requested theme has been exhausted while the group still has unseen
+scenarios, the selector chooses an unseen scenario from the full catalog and
+adds a short notice instead of repeating the themed surface. Only after the
+whole catalog is exhausted does a new rotation begin, with an immediate-repeat
+cooldown where the catalog has more than one item. A theme that matches only
+one puzzle can therefore be honored only until that puzzle has been used in
+the current group rotation. Each turtle-soup answer carries a cleaned,
+single-line preview of the current question, shown before the host verdict and
+limited to 80 characters with an ellipsis for longer questions. The preview is
+only an answer-matching aid and is not written to the puzzle-selection state.
 
 ## macOS + Docker Desktop
 
@@ -87,7 +241,7 @@ docker compose logs -f openclaw-gateway
 # OpenClaw status and configuration checks
 docker compose run --rm openclaw-cli status
 docker compose run --rm openclaw-cli config validate
-docker compose run --rm openclaw-cli plugins inspect qqbot
+docker compose run --rm openclaw-cli plugins inspect openclaw-qqbot
 docker compose exec qwen-vision ollama list
 
 # Stop

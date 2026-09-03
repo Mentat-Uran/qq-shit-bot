@@ -49,7 +49,7 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 if docker compose version >/dev/null 2>&1; then
-    compose() {
+compose() {
         docker compose \
             -f "$SCRIPT_DIR/docker-compose.yml" \
             -f "$SCRIPT_DIR/docker-compose.local.yml" "$@"
@@ -64,6 +64,22 @@ else
     echo "Docker Compose is required." >&2
     exit 1
 fi
+
+relocate_legacy_qqbot_project() {
+    projects_dir="$RUNTIME_DIR/config/npm/projects"
+    legacy_dir="$RUNTIME_DIR/config/npm/legacy-plugins"
+    [ -d "$projects_dir" ] || return 0
+    for legacy_project in "$projects_dir"/*; do
+        [ -d "$legacy_project/node_modules/@openclaw/qqbot" ] || continue
+        mkdir -p "$legacy_dir"
+        target="$legacy_dir/$(basename "$legacy_project")"
+        if [ -e "$target" ]; then
+            target="$target-$(date +%s)"
+        fi
+        mv "$legacy_project" "$target"
+        echo "Quarantined legacy @openclaw/qqbot project under $target."
+    done
+}
 
 if [ ! -f "$ENV_FILE" ]; then
     cp "$SCRIPT_DIR/.env.example" "$ENV_FILE"
@@ -109,10 +125,14 @@ chmod 600 "$RUNTIME_DIR/config/openclaw.json" "$RUNTIME_DIR/workspace/AGENTS.md"
 cd "$SCRIPT_DIR"
 compose pull openclaw-gateway openclaw-cli qwen-vision
 compose run --rm --no-deps qq-diagnostic-filter-init
+relocate_legacy_qqbot_project
 
-if ! compose run --rm --no-deps openclaw-cli plugins inspect qqbot --json >/dev/null 2>&1; then
+if ! compose run --rm --no-deps openclaw-cli plugins inspect openclaw-qqbot --json 2>/dev/null | grep -F '2.0.3' >/dev/null; then
     plugin_spec=$(env_value OPENCLAW_QQBOT_PLUGIN)
-    compose run --rm --no-deps openclaw-cli plugins install "$plugin_spec" --force --pin
+    compose run --rm --no-deps openclaw-cli plugins install "$plugin_spec" --force --pin --accept-capabilities
+fi
+if ! compose run --rm --no-deps openclaw-cli plugins inspect duckduckgo --json 2>/dev/null | grep -F '2026.8.2' >/dev/null; then
+    compose run --rm --no-deps openclaw-cli plugins install '@openclaw/duckduckgo-plugin@2026.8.2' --force --pin --accept-capabilities
 fi
 
 compose run --rm --no-deps openclaw-cli config validate

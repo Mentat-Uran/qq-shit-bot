@@ -9,7 +9,7 @@ BAT_SCRIPT = ROOT / "scripts" / "windows" / "Bind-OpenClawQQBot.bat"
 def test_qr_binding_uses_the_official_plugin_only_as_a_temporary_helper():
     text = SCRIPT.read_text(encoding="utf-8")
 
-    assert "@tencent-connect/openclaw-qqbot@2.0.0" in text
+    assert "@tencent-connect/openclaw-qqbot@2.0.3" in text
     assert "'qq-diagnostic-filter-init'" in text
     assert "'channels', 'login', '--channel', 'qqbot'" in text
     assert "'plugins', 'uninstall', 'openclaw-qqbot'" in text

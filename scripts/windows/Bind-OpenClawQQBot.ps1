@@ -238,7 +238,7 @@ if ($needsQr) {
     Ensure-RuntimeFiles
     try {
         Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'qq-diagnostic-filter-init')
-        Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'plugins', 'install', '@tencent-connect/openclaw-qqbot@2.0.0', '--force', '--pin')
+        Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'plugins', 'install', '@tencent-connect/openclaw-qqbot@2.0.3', '--force', '--pin', '--accept-capabilities')
         $temporaryPluginInstalled = $true
         Enable-TemporaryQrPlugin
         Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'channels', 'login', '--channel', 'qqbot')

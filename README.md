@@ -1,13 +1,15 @@
 # QQ Shit Bot
 
-这是一个 QQ 群聊机器人项目。当前唯一运行形态是 **OpenClaw + Docker**:OpenClaw `2026.7.1` 与官方 `@openclaw/qqbot` 插件全部运行在 Docker 中,宿主机不安装 OpenClaw、Node.js 或 QQ 插件。
+这是一个 QQ 群聊机器人项目。当前唯一运行形态是 **OpenClaw + Docker**:OpenClaw `2026.8.2` 与官方 QQBot 2.x 插件 `@tencent-connect/openclaw-qqbot` `2.0.3` 全部运行在 Docker 中,宿主机不安装 OpenClaw、Node.js 或 QQ 插件。
 
 仓库只保留 OpenClaw Docker 运行链路与 QQ 机器人相关文档,不再维护宿主机上的 OpenClaw 或其他本地运行方案。Windows 保留本地 Qwen 视觉链路；macOS 使用独立 Compose 文件，通过 SenseNova 6.7 Flash-Lite 识图，再由 DeepSeek 文本模型生成最终 QQ 回复。迁移约束见 [`MAC_MIGRATION_SENSENOVA_LAN_REQUIREMENTS.md`](MAC_MIGRATION_SENSENOVA_LAN_REQUIREMENTS.md)。
 
 ## 功能
 
 - QQ 私聊、群聊和明确 @ 触发;网关可接收群消息，但运行时人格仍要求群聊回复以当前 @ 或直接提问为触发条件。
-- 群聊上下文按群独立维护:每个 @ 默认只带当前消息和最近 1 条未 @ 消息，队列使用小容量 steer 模式，60 分钟空闲自动重置；`context-recovery` 守护进程在上下文溢出或模型卡死时自动重置对应群会话。
+- 群聊上下文按群独立维护:Linux Codex overlay 每个 @ 默认带当前消息和最近 12 条未 @ 消息作为候选上下文，模型先判断历史和当前消息的关系，相关才纳入推理，无关就忽略；队列使用小容量 steer 模式，60 分钟空闲自动重置；`context-recovery` 守护进程在上下文溢出或模型卡死时自动重置对应群会话。
+- Linux Codex overlay 还提供 CPU-only 群聊小游戏：海龟汤、成语接龙和猜成语。海龟汤复用开源 `nonebot-plugin-ai-turtle-soup` 引擎，开始/状态只展示汤面，不展示会泄露信息的标题；默认使用 50 道本地题库（含带 CC BY 署名的公开示例改编题和 30 道原创悬疑/惊悚/恐怖题），每个群独立持久化轮换，当前轮次不重复同一道汤面；支持 `开始海龟汤 悬疑惊悚恐怖`、`开始海龟汤 恐怖医院` 等自然主题提示词，LunaMax 负责是/否裁判，联网检索出题可通过 `GAME_PUZZLE_SOURCE=ai` 开启。海龟汤每次主持回答开头都会显示当前问题的短摘要，便于多人对应，不再显示提问者 ID。成语接龙和猜成语使用固定 MIT 成语库，不需要模型调用，直接在群里发四字成语即可。
+- Linux Codex overlay 的 QQ 菜单提供显式 TTS 朗读和语调选择：普通文字回复始终是文字，使用 `读：内容` 发语音；成功转写的 QQ 语音入站会把一次 AI 回答转成一次原生语音，菜单可选择温柔、播音、戏剧或正常语调。
 - 引用文本、图片、语音、文件和 QQ 小程序卡片摘要处理;小程序有标题时先搜索标题再解读,查不到时不编造正文。
 - Windows 文字主模型是商汤 SenseNova `deepseek-v4-flash`,官方 DeepSeek `deepseek-chat` 作为 fallback；Mac 使用官方 DeepSeek `deepseek-v4-flash` API，默认思考级别为 medium。
 - 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是 Windows 链路的视觉路径。Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合方案已删除，不再构建或启动。
@@ -26,6 +28,8 @@ cp .env.example .env
 # 填写 .env 中的 QQ、模型凭据与 OPENCLAW_GATEWAY_TOKEN
 ./setup.sh
 ```
+
+本机 CachyOS 已有 Codex 兼容反代时，使用 `./start-codex.sh` 启动本地专用覆盖层：它保留完整英文 `SOUL.md`，使用 `qq-shit-bot` 代称，把文字和图片请求发送到本机 `127.0.0.1:18317` 的 `gpt-5.6-luna`，思考级别为 `max`，并按当前意图自动切换紧凑社交模式与实用答复模式。收到图片时先概括可见内容，再给自然评论或锐评；社交模式不设硬字符上限，但不会写成长篇大论。提示词给出行为方向，不把具体示例、固定关键词或固定台词当作模板。它启用同一模型的图片输入、DuckDuckGo 搜索、上下文裁剪/压缩和 QQ 插件，不启动 `qwen-vision`；Qwen3-TTS/ASR 只由 loopback GPU gate 按需启动，不要求 SenseNova/DeepSeek 凭据。引用或最近图片若只有 QQ 签名下载地址，会先通过精确限制的 QQ 媒体下载路径转成本地图片，不把签名 URL 交给通用图像工具，也不关闭全局 SSRF 防护。详细命令见 [`deploy/openclaw/README.md`](deploy/openclaw/README.md)。
 
 ### Windows
 
@@ -54,7 +58,7 @@ cd deploy/openclaw
 docker compose logs -f openclaw-gateway
 docker compose run --rm openclaw-cli status
 docker compose run --rm openclaw-cli config validate
-docker compose run --rm openclaw-cli plugins inspect qqbot
+docker compose run --rm openclaw-cli plugins inspect openclaw-qqbot
 docker compose exec qwen-vision ollama list
 python ../../scripts/openclaw_diagnostic.py --mode health --pretty
 ```
@@ -95,9 +99,9 @@ Qwen 不暴露宿主机端口;图片服务在 Compose 私有网络内访问 `qwe
 
 ## 上下文管理
 
-- 群历史窗口 `historyLimit: 1`;未 @ 的普通消息最多保留最近 1 条，不触发模型调用。明确 QQ 引用优先，图片最多带 1 张；没有引用时只有文字明确指向上图/刚才的图才考虑最近图片。
-- 消息队列使用 `steer` 模式,700ms 去抖,上限 2 条,超出丢弃旧消息。
-- 默认 `contextTokens: 32768`，启动续话跳过重复 bootstrap；工具结果和压缩后的历史也有独立字符上限，compaction 保留最近 8000 token 与最近 2 轮。
+- 群历史窗口 `historyLimit: 12`;未 @ 的普通消息最多保留最近 12 条作为候选上下文，模型会先判断每条消息与当前消息是否相关，相关才纳入推理，无关内容忽略。明确 QQ 引用和合并转发优先，图片最多带 1 张；没有引用时只有文字明确指向上图/刚才的图才考虑最近图片。
+- 入站消息使用 700ms 去抖；消息队列使用 `steer` 模式、上限 2 条，超出丢弃旧消息。
+- `gpt-5.6-luna` 声明 262144-token 上下文窗口，启动续话跳过重复 bootstrap；工具结果和压缩后的历史也有独立字符上限，compaction 保留最近 8000 token 与最近 2 轮。
 - 群会话 60 分钟无活动自动重置;`context-recovery` 兜底处理溢出/卡死,技术细节不出现在群里。
 - 主动巡检默认关闭；只有明确设置 `QQBOT_PROACTIVE_REVIEW_ENABLED=true` 才注册低频任务，避免后台定时扫描消耗 API。
 

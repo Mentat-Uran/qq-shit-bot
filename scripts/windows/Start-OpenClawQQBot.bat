@@ -6,7 +6,7 @@ set "DEPLOY_DIR=%PROJECT_DIR%\deploy\openclaw"
 set "ENV_FILE=%DEPLOY_DIR%\.env"
 set "RUNTIME_DIR=%DEPLOY_DIR%\runtime"
 set "COMPOSE_ARGS=--env-file .env -f docker-compose.yml -f docker-compose.local.yml"
-set "PLUGIN_SPEC=@openclaw/qqbot@2026.7.1"
+set "PLUGIN_SPEC=@tencent-connect/openclaw-qqbot@2.0.3"
 set "QWEN_IMAGE=ollama/ollama:0.32.5"
 
 echo Starting OpenClaw QQ Bot from:
@@ -76,10 +76,28 @@ echo Preparing local OpenClaw runtime files...
 docker compose %COMPOSE_ARGS% run --rm --no-deps qq-diagnostic-filter-init
 if errorlevel 1 goto :fail_after_pushd
 
-docker compose %COMPOSE_ARGS% run --rm --no-deps openclaw-cli plugins inspect qqbot --json >nul 2>&1
+if exist "runtime\config\npm\projects" (
+    if not exist "runtime\config\npm\legacy-plugins" mkdir "runtime\config\npm\legacy-plugins"
+    for /d %%P in ("runtime\config\npm\projects\*") do (
+        if exist "%%~fP\node_modules\@openclaw\qqbot" (
+            echo Quarantining legacy QQ plugin project %%~nxP...
+            move /Y "%%~fP" "runtime\config\npm\legacy-plugins\" >nul
+            if errorlevel 1 goto :fail_after_pushd
+        )
+    )
+)
+
+docker compose %COMPOSE_ARGS% run --rm --no-deps openclaw-cli plugins inspect openclaw-qqbot --json | findstr /c:"2.0.3" >nul 2>&1
 if errorlevel 1 (
     echo Installing pinned QQ plugin...
-    docker compose %COMPOSE_ARGS% run --rm --no-deps openclaw-cli plugins install "%PLUGIN_SPEC%" --force --pin
+    docker compose %COMPOSE_ARGS% run --rm --no-deps openclaw-cli plugins install "%PLUGIN_SPEC%" --force --pin --accept-capabilities
+    if errorlevel 1 goto :fail_after_pushd
+)
+
+docker compose %COMPOSE_ARGS% run --rm --no-deps openclaw-cli plugins inspect duckduckgo --json | findstr /c:"2026.8.2" >nul 2>&1
+if errorlevel 1 (
+    echo Installing pinned DuckDuckGo search plugin...
+    docker compose %COMPOSE_ARGS% run --rm --no-deps openclaw-cli plugins install "@openclaw/duckduckgo-plugin@2026.8.2" --force --pin --accept-capabilities
     if errorlevel 1 goto :fail_after_pushd
 )
 

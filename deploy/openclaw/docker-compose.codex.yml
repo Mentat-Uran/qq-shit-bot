@@ -1,0 +1,185 @@
+# Linux-local overlay for the existing loopback-only CLIProxyAPI.
+# The Gateway and recovery sidecar use host networking so 127.0.0.1:18317
+# remains private to the host; the Gateway itself is still loopback-bound.
+# qwen-vision is intentionally not started by start-codex.sh.  The game
+# sidecar is CPU-only; its text games need no model call, while turtle soup
+# calls the local Luna proxy and neither path touches the TTS/ASR/ComfyUI GPU lease.
+services:
+  qqbot-game:
+    build:
+      context: ./games/ai-turtle-soup
+      dockerfile: Dockerfile
+    image: ${QQBOT_GAME_IMAGE:-qqshitbot-openclaw-turtle-soup:local}
+    network_mode: host
+    user: "${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000}"
+    restart: unless-stopped
+    environment:
+      GAME_SERVICE_HOST: 127.0.0.1
+      GAME_SERVICE_PORT: "18104"
+      GAME_LLM_BASE_URL: ${GAME_LLM_BASE_URL:-http://127.0.0.1:18317/v1}
+      GAME_LLM_API_KEY: ${GAME_LLM_API_KEY:-local}
+      GAME_LLM_MODEL: ${GAME_LLM_MODEL:-gpt-5.6-luna}
+      GAME_LLM_REASONING_EFFORT: ${GAME_LLM_REASONING_EFFORT:-max}
+      GAME_AI_GENERATION_TIMEOUT: ${GAME_AI_GENERATION_TIMEOUT:-45}
+      GAME_LLM_GENERATE_MAX_TOKENS: ${GAME_LLM_GENERATE_MAX_TOKENS:-256}
+      GAME_LLM_JUDGE_MAX_TOKENS: ${GAME_LLM_JUDGE_MAX_TOKENS:-256}
+      GAME_PUZZLE_SOURCE: ${GAME_PUZZLE_SOURCE:-local}
+      GAME_LOCAL_PUZZLES_PATH: /opt/qq-game/sample_soups.json
+      GAME_PUZZLE_SELECTION_STATE_PATH: ${GAME_PUZZLE_SELECTION_STATE_PATH:-/var/lib/qq-game/selection.json}
+      GAME_PUZZLE_SELECTION_MAX_GROUPS: ${GAME_PUZZLE_SELECTION_MAX_GROUPS:-2048}
+      GAME_CHAT_CHAIN_MAX_ROUNDS: ${GAME_CHAT_CHAIN_MAX_ROUNDS:-30}
+      GAME_CHAT_WORDLE_MAX_GUESSES: ${GAME_CHAT_WORDLE_MAX_GUESSES:-10}
+      GAME_CHAT_MAX_SESSIONS: ${GAME_CHAT_MAX_SESSIONS:-2048}
+      GAME_WEB_SEARCH_ENABLED: ${GAME_WEB_SEARCH_ENABLED:-true}
+      GAME_WEB_SEARCH_URL: ${GAME_WEB_SEARCH_URL:-https://html.duckduckgo.com/html/}
+      HTTP_PROXY: ${OPENCLAW_HTTP_PROXY:-http://127.0.0.1:7890}
+      HTTPS_PROXY: ${OPENCLAW_HTTPS_PROXY:-http://127.0.0.1:7890}
+      NO_PROXY: ${OPENCLAW_NO_PROXY:-127.0.0.1,localhost,::1}
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${QQBOT_GAME_CPUS:-1.0}
+    mem_limit: ${QQBOT_GAME_MEMORY_LIMIT:-768m}
+    volumes:
+      - ./runtime/game-state:/var/lib/qq-game
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18104/health', timeout=2).read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  qwen-tts:
+    # Pinned bridge image; the public Qwen3-TTS weights are downloaded into a
+    # dedicated cache on the first explicit TTS request.
+    image: ghcr.io/malaiwah/qwen3-tts-server@sha256:b363a01d08b1bbecbfc3ca6f585368fae2cfdc591f9ecca6643738369f9a9d98
+    network_mode: host
+    # Docker on this host has no NVIDIA CDI/runtime registration.  Pass only
+    # the local GPU device nodes and driver libraries needed by CUDA instead
+    # of changing the host-wide Docker runtime configuration.
+    devices:
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
+      - /dev/nvidia-caps/nvidia-cap1:/dev/nvidia-caps/nvidia-cap1
+      - /dev/nvidia-caps/nvidia-cap2:/dev/nvidia-caps/nvidia-cap2
+    restart: "no"
+    shm_size: "2g"
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      # The first startup populated this snapshot in the named cache.  Using
+      # the local snapshot avoids Hugging Face metadata/API rate limits during
+      # every later restart while retaining the official Qwen3-TTS weights.
+      QWEN3_TTS_MODEL_ID: /root/.cache/huggingface/hub/models--Qwen--Qwen3-TTS-12Hz-1.7B-Base/snapshots/fd4b254389122332181a7c3db7f27e918eec64e3
+      HF_HUB_OFFLINE: "1"
+      QWEN3_TTS_DEFAULT_VOICE: serena
+      QWEN3_TTS_MAX_TEXT_LENGTH: "2000"
+      HTTP_PROXY: ${OPENCLAW_HTTP_PROXY:-http://127.0.0.1:7890}
+      HTTPS_PROXY: ${OPENCLAW_HTTPS_PROXY:-http://127.0.0.1:7890}
+      NO_PROXY: ${OPENCLAW_NO_PROXY:-127.0.0.1,localhost,::1}
+      LD_LIBRARY_PATH: /usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - qwen3-tts-hf-cache:/root/.cache/huggingface
+      - /usr/lib/libcuda.so.1:/usr/local/nvidia/lib64/libcuda.so.1:ro
+      - /usr/lib/libnvidia-ml.so.1:/usr/local/nvidia/lib64/libnvidia-ml.so.1:ro
+      - /usr/lib/libnvidia-ptxjitcompiler.so.1:/usr/local/nvidia/lib64/libnvidia-ptxjitcompiler.so.1:ro
+      - /usr/lib/libnvidia-allocator.so.1:/usr/local/nvidia/lib64/libnvidia-allocator.so.1:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:18101/health | python3 -c \"import sys,json; d=json.load(sys.stdin); sys.exit(0 if d['model_ready'] else 1)\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+    command: ["--host", "127.0.0.1", "--port", "18101", "--log-level", "info"]
+
+  qwen-asr:
+    # OpenAI-compatible Qwen3-ASR endpoint.  The GPU gate starts this service
+    # only for an inbound voice request and stops it before TTS or ComfyUI use.
+    image: ghcr.io/malaiwah/qwen3-asr-server@sha256:d52c7bfb01d2fddf290655c43846c8457f71dc2f762c2808fbacbe79cfbe489d
+    network_mode: host
+    devices:
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
+      - /dev/nvidia-caps/nvidia-cap1:/dev/nvidia-caps/nvidia-cap1
+      - /dev/nvidia-caps/nvidia-cap2:/dev/nvidia-caps/nvidia-cap2
+    restart: "no"
+    shm_size: "2g"
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      QWEN3_ASR_MODEL_ID: Qwen/Qwen3-ASR-1.7B
+      HTTP_PROXY: ${OPENCLAW_HTTP_PROXY:-http://127.0.0.1:7890}
+      HTTPS_PROXY: ${OPENCLAW_HTTPS_PROXY:-http://127.0.0.1:7890}
+      NO_PROXY: ${OPENCLAW_NO_PROXY:-127.0.0.1,localhost,::1}
+      LD_LIBRARY_PATH: /usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - qwen3-asr-hf-cache:/root/.cache/huggingface
+      - /usr/lib/libcuda.so.1:/usr/local/nvidia/lib64/libcuda.so.1:ro
+      - /usr/lib/libnvidia-ml.so.1:/usr/local/nvidia/lib64/libnvidia-ml.so.1:ro
+      - /usr/lib/libnvidia-ptxjitcompiler.so.1:/usr/local/nvidia/lib64/libnvidia-ptxjitcompiler.so.1:ro
+      - /usr/lib/libnvidia-allocator.so.1:/usr/local/nvidia/lib64/libnvidia-allocator.so.1:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:18103/health | python3 -c \"import sys,json; d=json.load(sys.stdin); sys.exit(0 if d['model_ready'] else 1)\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 10
+    # On the host's 8 GiB RTX 4060 Laptop GPU, keep the ASR context bounded
+    # and disable CUDA graphs so vLLM leaves room for at least one KV-cache
+    # block after loading the 1.7B model.  Both limits remain overridable for
+    # a different GPU through the local .env file.
+    command: ["--host", "127.0.0.1", "--port", "18103", "--gpu-memory-utilization", "${QWEN_ASR_GPU_MEMORY_UTILIZATION:-0.75}", "--max-model-len", "${QWEN_ASR_MAX_MODEL_LEN:-2048}", "--max-num-seqs", "1", "--kv-cache-dtype", "fp8", "--enforce-eager"]
+
+  openclaw-gateway:
+    network_mode: host
+    ports: !reset []
+    depends_on:
+      qqbot-game:
+        condition: service_healthy
+    volumes:
+      - /home/mentat/services/qq-shit-bot/deploy/openclaw/workflows/z_image_turbo_api_provider.json:/home/node/.openclaw/workflows/z_image_turbo_api_provider.json:ro
+    # The host uses FlClash's fake-IP DNS mode.  Node's fetch does not read
+    # the desktop proxy unless env-proxy support is enabled explicitly.
+    # Keep the QQ control API, local model proxy, and local gateway traffic direct.
+    # Signed image downloads use the host proxy; leaving the multimedia host in
+    # NO_PROXY makes fake-IP DNS look private to OpenClaw's SSRF guard.
+    environment:
+      HTTP_PROXY: ${OPENCLAW_HTTP_PROXY:-http://127.0.0.1:7890}
+      HTTPS_PROXY: ${OPENCLAW_HTTPS_PROXY:-http://127.0.0.1:7890}
+      NO_PROXY: ${OPENCLAW_NO_PROXY:-127.0.0.1,localhost,::1,api.sgroup.qq.com,bots.qq.com}
+      NODE_USE_ENV_PROXY: "1"
+      QQBOT_GAME_SERVICE_URL: ${QQBOT_GAME_SERVICE_URL:-http://127.0.0.1:18104}
+    command:
+      - sh
+      - -c
+      - >-
+        node /opt/openclaw-local/web-search-patch.mjs && node /opt/openclaw-local/qqbot-interactive-features-patch.mjs && node /opt/openclaw-local/qqbot-history-media-patch.mjs && exec node
+        dist/index.js gateway --bind loopback --port 18789 2>&1 | tee -a
+        /tmp/openclaw/gateway.log
+
+  openclaw-cli:
+    network_mode: host
+    ports: !reset []
+    volumes:
+      - /home/mentat/services/qq-shit-bot/deploy/openclaw/workflows/z_image_turbo_api_provider.json:/home/node/.openclaw/workflows/z_image_turbo_api_provider.json:ro
+
+  context-recovery:
+    network_mode: host
+    environment:
+      OPENCLAW_GATEWAY_URL: ws://127.0.0.1:18789
+
+volumes:
+  qwen3-tts-hf-cache:
+    name: qqshitbot-openclaw_qwen3-tts-hf-cache
+  qwen3-asr-hf-cache:
+    name: qqshitbot-openclaw_qwen3-asr-hf-cache

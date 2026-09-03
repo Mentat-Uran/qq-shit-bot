@@ -24,7 +24,7 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install --disable-pip-version-check -r tests/requirements-deploy.txt
       - name: Run deployment behavior tests
-        run: python -m pytest tests/deploy/ tests/ops_console/ -q
+        run: python -m pytest tests/deploy/ tests/games/ tests/ops_console/ -q
       - name: Run tracked-file security audit
         run: python scripts/security_audit.py
 
@@ -59,6 +59,7 @@ jobs:
           node --check deploy/openclaw/cron-jobs.mjs
           node --check deploy/openclaw/diagnostic-policy.mjs
           node --check deploy/openclaw/media-policy.mjs
+          node --check deploy/openclaw/qqbot-context-policy-core.mjs
           node --check deploy/openclaw/qq-diagnostic-filter.mjs
           node --check deploy/openclaw/qqbot-history-media-patch.mjs
           node --check deploy/openclaw/web-search-patch.mjs

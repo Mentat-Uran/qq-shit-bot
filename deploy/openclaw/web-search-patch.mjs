@@ -3,14 +3,37 @@ import path from "node:path";
 
 const PATCH_MARKER = "/* qqbot-duckduckgo-lite-v1 */";
 const DIST_DIR = "/app/dist";
+const stateDir = process.env.OPENCLAW_STATE_DIR || "/home/node/.openclaw";
+const PROJECTS_DIR = path.join(stateDir, "npm", "projects");
 const HTML_ENDPOINT = 'const DDG_HTML_ENDPOINT = "https://html.duckduckgo.com/html";';
 const LITE_ENDPOINT = 'const DDG_HTML_ENDPOINT = "https://lite.duckduckgo.com/lite";';
 
 function findBundle() {
-  for (const file of fs.readdirSync(DIST_DIR)) {
-    if (/^ddg-client-.*\.js$/.test(file)) return path.join(DIST_DIR, file);
+  const candidates = [];
+  if (fs.existsSync(DIST_DIR)) {
+    for (const file of fs.readdirSync(DIST_DIR)) {
+      if (/^ddg-client-.*\.js$/.test(file)) candidates.push(path.join(DIST_DIR, file));
+    }
   }
-  return null;
+  if (fs.existsSync(PROJECTS_DIR)) {
+    for (const project of fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })) {
+      if (!project.isDirectory()) continue;
+      const distDir = path.join(
+        PROJECTS_DIR,
+        project.name,
+        "node_modules",
+        "@openclaw",
+        "duckduckgo-plugin",
+        "dist",
+      );
+      if (!fs.existsSync(distDir)) continue;
+      for (const file of fs.readdirSync(distDir)) {
+        if (/^ddg-client-.*\.js$/.test(file)) candidates.push(path.join(distDir, file));
+      }
+    }
+  }
+  candidates.sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
+  return candidates[0] ?? null;
 }
 
 function patchBundle(file) {

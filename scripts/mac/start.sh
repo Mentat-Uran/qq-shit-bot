@@ -10,6 +10,22 @@ OPENCLAW_UID=$(id -u)
 OPENCLAW_GID=$(id -g)
 export OPENCLAW_UID OPENCLAW_GID
 
+relocate_legacy_qqbot_project() {
+    projects_dir="$DEPLOY_DIR/runtime/config/npm/projects"
+    legacy_dir="$DEPLOY_DIR/runtime/config/npm/legacy-plugins"
+    [ -d "$projects_dir" ] || return 0
+    for legacy_project in "$projects_dir"/*; do
+        [ -d "$legacy_project/node_modules/@openclaw/qqbot" ] || continue
+        mkdir -p "$legacy_dir"
+        target="$legacy_dir/$(basename "$legacy_project")"
+        if [ -e "$target" ]; then
+            target="$target-$(date +%s)"
+        fi
+        mv "$legacy_project" "$target"
+        echo "Quarantined legacy @openclaw/qqbot project under $target."
+    done
+}
+
 sh "$DEPLOY_DIR/validate-mac-env.sh" --env-file "$ENV_FILE"
 mkdir -p "$DEPLOY_DIR/runtime/config" "$DEPLOY_DIR/runtime/workspace"
 chmod 700 "$DEPLOY_DIR/runtime" "$DEPLOY_DIR/runtime/config" "$DEPLOY_DIR/runtime/workspace"
@@ -24,10 +40,14 @@ chmod 600 "$DEPLOY_DIR/runtime/config/media-capabilities.json"
 # applied as root; the long-running gateway still uses the current macOS UID.
 compose --profile cli build --pull openclaw-gateway openclaw-cli
 compose run --rm --no-deps qq-diagnostic-filter-init
+relocate_legacy_qqbot_project
 
-if ! compose --profile cli run --rm --no-deps openclaw-cli plugins inspect qqbot --json >/dev/null 2>&1; then
+if ! compose --profile cli run --rm --no-deps openclaw-cli plugins inspect openclaw-qqbot --json 2>/dev/null | grep -F '2.0.3' >/dev/null; then
     plugin_spec=$(env_value OPENCLAW_QQBOT_PLUGIN)
-    compose --profile cli run --rm --no-deps openclaw-cli plugins install "$plugin_spec" --force --pin
+    compose --profile cli run --rm --no-deps openclaw-cli plugins install "$plugin_spec" --force --pin --accept-capabilities
+fi
+if ! compose --profile cli run --rm --no-deps openclaw-cli plugins inspect duckduckgo --json 2>/dev/null | grep -F '2026.8.2' >/dev/null; then
+    compose --profile cli run --rm --no-deps openclaw-cli plugins install '@openclaw/duckduckgo-plugin@2026.8.2' --force --pin --accept-capabilities
 fi
 compose --profile cli run --rm --no-deps openclaw-cli config validate
 compose up -d openclaw-gateway context-recovery
