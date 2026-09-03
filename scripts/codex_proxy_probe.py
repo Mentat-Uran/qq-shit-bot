@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Opt-in redacted probe for the Mac SenseNova vision -> DeepSeek text route.
+"""Opt-in redacted probe for the shared Codex reverse-proxy route.
 
-The script reads the ignored deployment .env in-process and never prints keys,
-request bodies, image bytes, model responses, or QQ content. It is a provider
-probe only; it cannot prove that a real QQ attachment reached the gateway.
+The script reads the ignored deployment .env in-process and never prints the
+proxy token, request body, image bytes, model response, or QQ content. It is a
+provider probe only; it cannot prove that a real QQ attachment reached the
+Gateway or that a reply was delivered to a client.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ import argparse
 import base64
 import json
 import mimetypes
-import os
 import re
 import sys
 import urllib.error
@@ -21,11 +21,8 @@ from pathlib import Path
 from typing import Any
 
 
-SENSENOVA_URL = "https://token.sensenova.cn/v1/chat/completions"
-DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
-VISION_MODEL = "sensenova-6.7-flash-lite"
-TEXT_MODEL = "deepseek-v4-flash"
-THINKING_MODE = "enabled"
+CODEX_PROXY_MODEL = "gpt-5.6-luna"
+CODEX_PROXY_REASONING_EFFORT = "max"
 PLACEHOLDER = "replace-with-"
 
 
@@ -63,7 +60,7 @@ def request_json(url: str, api_key: str, payload: dict[str, Any], timeout: int) 
         return 0, None
 
 
-def content_from_response(value: dict[str, Any] | None, *, allow_reasoning: bool = False) -> str | None:
+def content_from_response(value: dict[str, Any] | None, *, allow_reasoning: bool = True) -> str | None:
     choices = value.get("choices") if isinstance(value, dict) else None
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         return None
@@ -79,8 +76,6 @@ def content_from_response(value: dict[str, Any] | None, *, allow_reasoning: bool
         if combined:
             return combined
     if allow_reasoning:
-        # SenseNova 6.7 Flash-Lite may return its usable multimodal description
-        # in a provider-specific reasoning field while omitting message.content.
         for field in ("reasoning", "reasoning_content"):
             reasoning = message.get(field)
             if isinstance(reasoning, str) and reasoning.strip():
@@ -92,7 +87,7 @@ def image_message(image_path: Path) -> list[dict[str, Any]]:
     media_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
     encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
     return [
-        {"type": "text", "text": "用一句很短的中文描述这张图片，供另一个文本模型生成最终回复。"},
+        {"type": "text", "text": "请用一句很短的中文描述这张图片，并直接给出自然的 QQ 回复。"},
         {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{encoded}"}},
     ]
 
@@ -108,40 +103,29 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     values = parse_env(args.env_file.resolve())
-    vision_key = values.get("SENSENOVA_API_KEY")
-    if not configured(vision_key):
-        print("provider probe not run: SENSENOVA_API_KEY is missing or a placeholder (value redacted)")
+    base_url = values.get("CODEX_PROXY_BASE_URL", "").rstrip("/")
+    proxy_token = values.get("CODEX_PROXY_TOKEN")
+    if not configured(base_url) or not configured(proxy_token):
+        print("provider probe not run: CODEX_PROXY_BASE_URL or CODEX_PROXY_TOKEN is missing or a placeholder (value redacted)")
         return 2
     if args.image and not args.image.is_file():
         print("provider probe not run: image file is missing")
         return 2
 
-    vision_payload: dict[str, Any] = {
-        "model": VISION_MODEL,
-        "messages": [{"role": "user", "content": image_message(args.image)}] if args.image else [{"role": "user", "content": "返回：视觉探针文本路径可用。"}],
+    content: str | list[dict[str, Any]] = image_message(args.image) if args.image else "返回：Codex 反代文本路径可用。"
+    payload: dict[str, Any] = {
+        "model": CODEX_PROXY_MODEL,
+        "messages": [{"role": "user", "content": content}],
         "max_tokens": 120,
+        "reasoning_effort": CODEX_PROXY_REASONING_EFFORT,
     }
-    vision_status, vision_response = request_json(SENSENOVA_URL, vision_key, vision_payload, args.timeout)
-    vision_text = content_from_response(vision_response, allow_reasoning=True)
-    print(f"sensenova_vision model={VISION_MODEL} requested={'yes' if args.image else 'no'} status={vision_status or 'unreachable'} content={'yes' if vision_text else 'no'}")
-    if not vision_text:
-        return 1
-
-    deepseek_key = values.get("DEEPSEEK_API_KEY")
-    if not configured(deepseek_key):
-        print("official_deepseek_text not run: key is missing or a placeholder (value redacted)")
-        return 2
-
-    final_payload = {
-        "model": TEXT_MODEL,
-        "messages": [{"role": "user", "content": f"视觉识别结果：{vision_text}\n请生成一句很短的中文 QQ 回复。"}],
-        "max_tokens": 80,
-        "thinking": {"type": "enabled"},
-    }
-    text_status, text_response = request_json(DEEPSEEK_URL, deepseek_key, final_payload, args.timeout)
-    final_text = content_from_response(text_response)
-    print(f"official_deepseek_text model={TEXT_MODEL} thinking={THINKING_MODE} status={text_status or 'unreachable'} content={'yes' if final_text else 'no'}")
-    return 0 if final_text else 1
+    status, response = request_json(f"{base_url}/chat/completions", proxy_token, payload, args.timeout)
+    result = content_from_response(response)
+    print(
+        f"codex_proxy model={CODEX_PROXY_MODEL} requested_image={'yes' if args.image else 'no'} "
+        f"status={status or 'unreachable'} content={'yes' if result else 'no'}"
+    )
+    return 0 if result else 1
 
 
 if __name__ == "__main__":

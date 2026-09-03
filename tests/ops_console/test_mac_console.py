@@ -39,7 +39,7 @@ def test_mac_compose_parser_has_only_gateway_and_recovery_services():
     output = "\n".join([
         json.dumps({"Service": "openclaw-gateway", "Name": "gateway", "State": "running"}),
         json.dumps({"Service": "context-recovery", "Name": "recovery", "State": "running"}),
-        json.dumps({"Service": "qwen-vision", "Name": "retired", "State": "running"}),
+        json.dumps({"Service": "legacy-local-vision", "Name": "retired", "State": "running"}),
     ])
     rows = parse_compose_rows(output, ("openclaw-gateway", "context-recovery"))
     assert [row["service"] for row in rows] == ["openclaw-gateway", "context-recovery"]

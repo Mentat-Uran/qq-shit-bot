@@ -175,9 +175,9 @@ h1 em { color: var(--amber); font-style: normal; }
 .route-main.fallback strong { color: var(--cyan); }
 .route-arrow { color: var(--amber); font: 22px var(--mono); margin: 1px 0 -2px; }
 .route-meta { color: var(--muted); font-size: 11px; margin-top: 12px; }
-.ollama-signal { border-top: 1px solid var(--line); margin-top: 15px; padding-top: 13px; display: grid; gap: 4px; }
-.ollama-signal strong { font: 13px var(--mono); overflow-wrap: anywhere; }
-.ollama-signal small { color: var(--muted); font-size: 10px; }
+.codex-signal { border-top: 1px solid var(--line); margin-top: 15px; padding-top: 13px; display: grid; gap: 4px; }
+.codex-signal strong { font: 13px var(--mono); overflow-wrap: anywhere; }
+.codex-signal small { color: var(--muted); font-size: 10px; }
 .metric-stack { display: grid; gap: 0; }
 .metric-row { padding: 11px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .metric-row strong { color: var(--ink); font: 12px var(--mono); text-align: right; }

@@ -84,16 +84,13 @@ relocate_legacy_qqbot_project() {
 if [ ! -f "$ENV_FILE" ]; then
     cp "$SCRIPT_DIR/.env.example" "$ENV_FILE"
     chmod 600 "$ENV_FILE"
-    echo "Created $ENV_FILE. Fill in the QQ and model credentials, then rerun setup." >&2
+    echo "Created $ENV_FILE. Fill in the QQ credentials and Codex proxy token, then rerun setup." >&2
     exit 1
 fi
 chmod 600 "$ENV_FILE"
 
 replace_env_value OPENCLAW_UID "$(id -u)"
 replace_env_value OPENCLAW_GID "$(id -g)"
-replace_env_value QWEN_BASE_URL "http://qwen-vision:11434"
-replace_env_value QWEN_MODEL_CACHE_VOLUME "qqshitbot-openclaw_qwen-vision-model-cache"
-replace_env_value QWEN_MODEL_CACHE_EXTERNAL "false"
 
 # Unix and Windows use the same contract, alias migration, and redacted checks.
 sh "$SCRIPT_DIR/validate-env.sh" --migrate --generate-token
@@ -123,7 +120,7 @@ fi
 chmod 600 "$RUNTIME_DIR/config/openclaw.json" "$RUNTIME_DIR/workspace/AGENTS.md" "$RUNTIME_DIR/workspace/SOUL.md"
 
 cd "$SCRIPT_DIR"
-compose pull openclaw-gateway openclaw-cli qwen-vision
+compose pull openclaw-gateway openclaw-cli
 compose run --rm --no-deps qq-diagnostic-filter-init
 relocate_legacy_qqbot_project
 
@@ -136,24 +133,6 @@ if ! compose run --rm --no-deps openclaw-cli plugins inspect duckduckgo --json 2
 fi
 
 compose run --rm --no-deps openclaw-cli config validate
-compose up -d qwen-vision
-
-qwen_ready=0
-qwen_model_list=''
-for attempt in $(seq 1 30); do
-    if qwen_model_list=$(compose exec -T qwen-vision ollama list 2>/dev/null); then
-        qwen_ready=1
-        break
-    fi
-    sleep 2
-done
-if [ "$qwen_ready" -ne 1 ]; then
-    echo 'The OpenClaw qwen-vision service did not become ready.' >&2
-    exit 1
-fi
-if ! printf '%s\n' "$qwen_model_list" | grep -q '^qwen2\.5vl:7b[[:space:]]'; then
-    compose exec -T qwen-vision ollama pull qwen2.5vl:7b
-fi
 compose up -d openclaw-gateway context-recovery
 compose ps openclaw-gateway context-recovery
 

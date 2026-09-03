@@ -119,4 +119,4 @@ else
 fi
 
 compose ps openclaw-gateway context-recovery
-printf '\nMac OpenClaw QQ Bot is running; Gateway port=%s; local vision services are not part of this stack.\n' "$(env_value OPENCLAW_GATEWAY_PORT)"
+printf '\nDocker OpenClaw QQ Bot is running; Gateway port=%s; text and image understanding use the Codex reverse proxy.\n' "$(env_value OPENCLAW_GATEWAY_PORT)"

@@ -3,7 +3,7 @@
 ## 本地安全边界
 
 - `.env`、Docker volume、会话数据库、完整日志、模型缓存和 QQ 私聊/群聊内容只存在本机忽略路径，不提交到 Git。
-- 诊断和健康报告只输出状态、计数、模型名和设备信息，不输出环境值、Authorization、QQ Secret 或原始日志。
+- 诊断和健康报告只输出状态、计数、模型名和设备信息，不输出环境值、Authorization、QQ Secret、Codex 反代 token 或原始日志。
 - Gateway Control UI 和 Operations Console 默认只绑定 `127.0.0.1`；Mac 只有显式设置 LAN 地址后才发布到局域网。可信家庭/办公室 LAN 可选择具体 IPv4 的 `OPS_CONSOLE_AUTH_MODE=none` 脱敏只读模式；需要更强保护时使用 `token` 模式，禁止 wildcard 绑定和公网转发。
 - `exec`、`read`、`write` 工具保持拒绝；群消息中的附件、转发内容和网页内容不具有运行时指令权限。
 
@@ -25,4 +25,4 @@ Windows 使用等价的 `powershell -ExecutionPolicy Bypass -File deploy/opencla
 
 ## 证据边界
 
-本地命令只能证明配置、Compose 形状、容器可见状态、Gateway 本机 HTTP 健康、Ollama/GPU 观察值和日志大小。CI 只能证明 GitHub runner 上的检查通过。以上均不能证明外部 QQ 事件实际到达、QQ API 投递成功、模型服务的真实配额或线上用户体验；真实 QQ 投递仍需在已授权账号和群中单独验证。
+本地命令只能证明配置、Compose 形状、容器可见状态、Gateway 本机 HTTP 健康、Codex 反代配置或一次受控探针请求、可选辅助服务观察值和日志大小。CI 只能证明 GitHub runner 上的检查通过。以上均不能证明外部 QQ 事件实际到达、QQ API 投递成功、反代上游的真实配额或线上用户体验；真实 QQ 投递仍需在已授权账号和群中单独验证。

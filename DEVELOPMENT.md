@@ -14,11 +14,11 @@
 
 除非用户另有指定，持续开发应完成以下内容，而不是只做审计或补测试：
 
-- 统一 Unix 和 Windows 的环境变量校验与迁移，覆盖 `DEEPSEEK_API_KEY`、`QQBOT_HOME_CHANNEL` 等当前配置，增加不泄露密钥的本地部署诊断命令和文档。
+- 统一所有平台的环境变量校验与迁移，覆盖 `CODEX_PROXY_BASE_URL`、`CODEX_PROXY_TOKEN`、`QQBOT_HOME_CHANNEL` 等当前配置，增加不泄露密钥的本地部署诊断命令和文档。
 - 修复 CI 的重复测试矩阵，重命名遗留的检查名称，并让 CI 真正覆盖 Compose、JavaScript、PowerShell、启动脚本和部署测试。
 - 为媒体权限过滤、历史图片隔离、视频 @门控、上下文恢复、诊断信息抑制、cron 幂等注册增加行为测试，而不是只做字符串断言。
-- 增加运行态健康报告，检查 Gateway、context-recovery、Qwen/Ollama、GPU 模型设备、日志增长和模型降级状态；明确记录真实 QQ 投递仍需外部验证。
-- 完成 macOS Docker Desktop 迁移链路：Mac 专用 Compose、SenseNova 6.7 Flash-Lite 图片路由、DeepSeek 最终文本路由、Unix 运行入口、macOS 主机采集和受保护 LAN Operations Console；Windows Qwen 路径保持独立。
+- 增加运行态健康报告，检查 Gateway、context-recovery、Codex 反代配置/请求证据、日志增长和可选辅助服务状态；明确记录真实 QQ 投递仍需外部验证。
+- 完成跨平台 Docker Compose 链路：Windows、macOS、Linux 和 WSL 均使用 Docker Bot 栈，并通过 `CODEX_PROXY_BASE_URL`/`CODEX_PROXY_TOKEN` 走统一的 `codex-proxy/gpt-5.6-luna` 文字与图片路由；保留 Unix 运行入口、macOS 主机采集和受保护 LAN Operations Console。
 - 完成镜像、插件、依赖、许可证和密钥安全审计；为可行的镜像或插件增加可复现版本约束，并决定停用的重型视觉代码是归档还是移除。
 - 同步更新 README、部署文档、测试和维护说明，保证实现、配置、运行时策略和文档一致。
 

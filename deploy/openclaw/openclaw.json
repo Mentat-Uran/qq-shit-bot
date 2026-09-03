@@ -19,6 +19,8 @@
       "workspace": "/home/node/.openclaw/workspace",
       "timeoutSeconds": 900,
       "utilityModel": "",
+      "thinkingDefault": "max",
+      "reasoningDefault": "off",
       "contextInjection": "continuation-skip",
       "bootstrapMaxChars": 4500,
       "bootstrapTotalMaxChars": 7500,
@@ -36,12 +38,10 @@
         }
       },
       "model": {
-        "primary": "sensenova-token/deepseek-v4-flash",
-        "fallbacks": [
-          "deepseek/deepseek-chat"
-        ]
+        "primary": "codex-proxy/gpt-5.6-luna",
+        "fallbacks": []
       },
-      "imageModel": "local-vision/qwen2.5vl:7b",
+      "imageModel": "codex-proxy/gpt-5.6-luna",
       "compaction": {
         "mode": "safeguard",
         "keepRecentTokens": 8000,
@@ -62,64 +62,47 @@
     }
   },
   "models": {
-    "mode": "merge",
+    "mode": "replace",
     "providers": {
-      "sensenova-token": {
-        "baseUrl": "https://token.sensenova.cn/v1",
+      "codex-proxy": {
+        "baseUrl": "${CODEX_PROXY_BASE_URL}",
         "apiKey": {
           "source": "env",
           "provider": "default",
-          "id": "SENSENOVA_API_KEY"
+          "id": "CODEX_PROXY_TOKEN"
         },
         "api": "openai-completions",
+        "timeoutSeconds": 900,
         "models": [
           {
-            "id": "deepseek-v4-flash",
-            "name": "SenseNova DeepSeek V4 Flash",
-            "input": [
-              "text"
-            ],
-            "contextWindow": 1048576,
-            "maxTokens": 2048
-          }
-        ]
-      },
-      "deepseek": {
-        "baseUrl": "https://api.deepseek.com/v1",
-        "apiKey": {
-          "source": "env",
-          "provider": "default",
-          "id": "DEEPSEEK_API_KEY"
-        },
-        "api": "openai-completions",
-        "models": [
-          {
-            "id": "deepseek-chat",
-            "name": "Official DeepSeek Chat",
-            "input": [
-              "text"
-            ],
-            "contextWindow": 131072,
-            "maxTokens": 2048
-          }
-        ]
-      },
-      "local-vision": {
-        "baseUrl": "http://qwen-vision:11434/v1",
-        "apiKey": "local",
-        "api": "openai-completions",
-        "models": [
-          {
-            "id": "qwen2.5vl:7b",
-            "name": "Local Qwen2.5-VL 7B",
+            "id": "gpt-5.6-luna",
+            "name": "GPT-5.6 Luna via Codex reverse proxy",
             "input": [
               "text",
               "image"
             ],
-            "contextWindow": 32768,
-            "maxTokens": 512,
+            "contextWindow": 262144,
+            "maxTokens": 2048,
+            "reasoning": true,
+            "params": {
+              "reasoning_effort": "max"
+            },
             "compat": {
-              "supportsTools": false
+              "supportsTools": true,
+              "supportsPromptCacheKey": true,
+              "supportsReasoningEffort": true,
+              "supportedReasoningEfforts": [
+                "low",
+                "medium",
+                "high",
+                "max"
+              ],
+              "reasoningEffortMap": {
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+                "max": "max"
+              }
             }
           }
         ]
@@ -190,15 +173,24 @@
     "media": {
       "models": [
         {
-          "provider": "local-vision",
-          "model": "qwen2.5vl:7b",
+          "provider": "codex-proxy",
+          "model": "gpt-5.6-luna",
           "capabilities": [
             "image"
           ],
           "timeoutSeconds": 180,
-          "maxChars": 400
+          "maxChars": 1200
         }
       ],
+      "image": {
+        "enabled": true,
+        "attachments": {
+          "mode": "first",
+          "maxAttachments": 1
+        },
+        "timeoutSeconds": 180,
+        "maxChars": 1200
+      },
       "video": {
         "enabled": false
       }

@@ -17,16 +17,16 @@ def run(*args, cwd=ROOT):
     return subprocess.run(args, cwd=cwd, check=False, capture_output=True, text=True, encoding="utf-8")
 
 
-def test_unix_environment_validator_is_redacted_and_supports_legacy_migration(tmp_path):
+def test_unix_environment_validator_is_redacted_and_supports_legacy_channel_migration(tmp_path):
     if shutil.which("sh") is None:
         pytest.skip("Unix shell is not available on this Windows host")
     env_file = tmp_path / ".env"
-    env_file.write_text((DEPLOY_DIR / ".env.example").read_text(encoding="utf-8") + "HERMES_DEEPSEEK_API_KEY=legacy-test\n", encoding="utf-8")
+    env_file.write_text((DEPLOY_DIR / ".env.example").read_text(encoding="utf-8") + "HERMES_QQBOT_HOME_CHANNEL=legacy-channel\n", encoding="utf-8")
     result = run("sh", str(DEPLOY_DIR / "validate-env.sh"), "--env-file", str(env_file), "--migrate", "--allow-placeholders")
     assert result.returncode == 0, result.stderr
-    assert "legacy-test" not in result.stdout
-    assert "legacy-test" not in result.stderr
-    assert "DEEPSEEK_API_KEY=legacy-test" in env_file.read_text(encoding="utf-8")
+    assert "legacy-channel" not in result.stdout
+    assert "legacy-channel" not in result.stderr
+    assert "QQBOT_HOME_CHANNEL=legacy-channel" in env_file.read_text(encoding="utf-8")
 
 
 def test_diagnostic_report_is_structured_and_redacted():

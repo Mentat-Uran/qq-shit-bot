@@ -19,10 +19,14 @@ x-openclaw-common: &openclaw-common
     OPENCLAW_CONFIG_DIR: /home/node/.openclaw
     OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
     OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+    CODEX_PROXY_BASE_URL: ${CODEX_PROXY_BASE_URL}
+    CODEX_PROXY_TOKEN: ${CODEX_PROXY_TOKEN}
     OPENCLAW_DISABLE_BONJOUR: "1"
     OPENCLAW_SKIP_STARTUP_MODEL_PREWARM: "1"
     NPM_CONFIG_CACHE: /home/node/.openclaw/.npm-cache
     TZ: ${OPENCLAW_TZ:-Asia/Shanghai}
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   volumes:
     - ./runtime/config:/home/node/.openclaw
     - openclaw-state-mac:/home/node/.openclaw/state

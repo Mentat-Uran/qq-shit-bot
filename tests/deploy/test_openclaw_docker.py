@@ -16,7 +16,7 @@ def load_codex_config():
     return json.loads((DEPLOY_DIR / "openclaw.codex.json").read_text(encoding="utf-8"))
 
 
-def test_codex_overlay_routes_text_and_images_to_the_local_luna_proxy():
+def test_codex_overlay_routes_text_and_images_to_the_codex_proxy():
     config = load_codex_config()
     defaults = config["agents"]["defaults"]
     provider = config["models"]["providers"]["codex-proxy"]
@@ -25,7 +25,12 @@ def test_codex_overlay_routes_text_and_images_to_the_local_luna_proxy():
 
     assert defaults["model"] == {"primary": "codex-proxy/gpt-5.6-luna", "fallbacks": []}
     assert defaults["imageModel"] == "codex-proxy/gpt-5.6-luna"
-    assert provider["baseUrl"] == "http://127.0.0.1:18317/v1"
+    assert provider["baseUrl"] == "${CODEX_PROXY_BASE_URL}"
+    assert provider["apiKey"] == {
+        "source": "env",
+        "provider": "default",
+        "id": "CODEX_PROXY_TOKEN",
+    }
     assert model["id"] == "gpt-5.6-luna"
     assert model["input"] == ["text", "image"]
     assert model["reasoning"] is True
@@ -75,23 +80,21 @@ def test_codex_overlay_routes_text_and_images_to_the_local_luna_proxy():
 def test_compose_uses_current_stable_image_and_loopback_port():
     compose = yaml.safe_load((DEPLOY_DIR / "docker-compose.yml").read_text())
     common = compose["x-openclaw-common"]
-    qwen = compose["services"]["qwen-vision"]
     gateway = compose["services"]["openclaw-gateway"]
     plugin_init = compose["services"]["qq-diagnostic-filter-init"]
     recovery = compose["services"]["context-recovery"]
 
     assert compose["name"] == "qq-shit-bot"
+    assert set(compose["services"]) == {"qq-diagnostic-filter-init", "openclaw-gateway", "openclaw-cli", "context-recovery"}
     assert "ghcr.io/openclaw/openclaw:2026.8.2" in common["image"]
     assert gateway["ports"] == ["127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}:18789"]
     assert "/healthz" in gateway["healthcheck"]["test"][-1]
     assert common["cap_drop"] == ["NET_RAW", "NET_ADMIN"]
     assert common["security_opt"] == ["no-new-privileges:true"]
     assert common["environment"]["OPENCLAW_SKIP_STARTUP_MODEL_PREWARM"] == "1"
-    assert qwen["gpus"] == "all"
-    assert qwen["environment"]["OLLAMA_MAX_LOADED_MODELS"] == "1"
-    assert qwen["environment"]["OLLAMA_KEEP_ALIVE"] == "${OLLAMA_KEEP_ALIVE:-3m}"
-    assert qwen["mem_limit"] == "${QWEN_MEMORY_LIMIT:-6g}"
-    assert qwen["cpus"] == "${QWEN_CPUS:-2.0}"
+    assert common["environment"]["CODEX_PROXY_BASE_URL"] == "${CODEX_PROXY_BASE_URL}"
+    assert common["environment"]["CODEX_PROXY_TOKEN"] == "${CODEX_PROXY_TOKEN}"
+    assert common["extra_hosts"] == ["host.docker.internal:host-gateway"]
     assert "openclaw-logs:/tmp/openclaw" in common["volumes"]
     assert "openclaw-state:/home/node/.openclaw/state" in common["volumes"]
     assert gateway["depends_on"]["qq-diagnostic-filter-init"]["condition"] == "service_completed_successfully"
@@ -141,23 +144,25 @@ def test_openclaw_config_enables_qq_plugin_and_uses_secret_refs():
     assert config["gateway"]["terminal"]["enabled"] is False
     assert config["tools"]["deny"] == ["exec", "read", "write"]
     assert config["messages"]["suppressToolErrors"] is True
-    assert config["agents"]["defaults"]["model"]["fallbacks"] == ["deepseek/deepseek-chat"]
-    assert config["models"]["providers"]["deepseek"]["baseUrl"] == "https://api.deepseek.com/v1"
-    assert config["models"]["providers"]["deepseek"]["apiKey"]["id"] == "DEEPSEEK_API_KEY"
+    assert config["agents"]["defaults"]["model"] == {"primary": "codex-proxy/gpt-5.6-luna", "fallbacks": []}
+    assert set(config["models"]["providers"]) == {"codex-proxy"}
+    assert config["models"]["providers"]["codex-proxy"]["apiKey"]["id"] == "CODEX_PROXY_TOKEN"
     assert config["tools"]["web"]["search"] == {
         "enabled": True,
         "provider": "duckduckgo",
     }
 
 
-def test_openclaw_config_collects_group_context_and_keeps_vision_local():
+def test_openclaw_config_collects_group_context_and_uses_codex_for_images():
     config = load_openclaw_config()
 
     defaults = config["agents"]["defaults"]
     assert "contextTokens" not in defaults
     assert defaults["timeoutSeconds"] == 900
     assert defaults["utilityModel"] == ""
-    assert defaults["imageModel"] == "local-vision/qwen2.5vl:7b"
+    assert defaults["imageModel"] == "codex-proxy/gpt-5.6-luna"
+    assert defaults["thinkingDefault"] == "max"
+    assert defaults["reasoningDefault"] == "off"
     assert defaults["contextInjection"] == "continuation-skip"
     assert defaults["bootstrapMaxChars"] == 4500
     assert defaults["bootstrapTotalMaxChars"] == 7500
@@ -176,9 +181,11 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
         "idleMinutes": 60,
     }
 
-    local_qwen = config["models"]["providers"]["local-vision"]["models"][0]
-    assert config["models"]["providers"]["local-vision"]["baseUrl"] == "http://qwen-vision:11434/v1"
-    assert local_qwen["compat"]["supportsTools"] is False
+    codex_model = config["models"]["providers"]["codex-proxy"]["models"][0]
+    assert config["models"]["providers"]["codex-proxy"]["baseUrl"] == "${CODEX_PROXY_BASE_URL}"
+    assert config["models"]["providers"]["codex-proxy"]["apiKey"]["id"] == "CODEX_PROXY_TOKEN"
+    assert codex_model["input"] == ["text", "image"]
+    assert codex_model["compat"]["supportsTools"] is True
 
     qqbot = config["channels"]["qqbot"]
     assert qqbot["contextVisibility"] == "allowlist_quote"
@@ -248,11 +255,11 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     image_models = config["tools"]["media"]["models"]
     assert image_models == [
         {
-            "provider": "local-vision",
-            "model": "qwen2.5vl:7b",
+            "provider": "codex-proxy",
+            "model": "gpt-5.6-luna",
             "capabilities": ["image"],
             "timeoutSeconds": 180,
-            "maxChars": 400,
+            "maxChars": 1200,
         }
     ]
     assert config["tools"]["media"]["video"]["enabled"] is False
@@ -262,7 +269,9 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     serialized = json.dumps(config)
     assert "openai/" not in serialized
     assert "api.openai.com" not in serialized
-    assert "gpt-" not in serialized
+    assert "sensenova" not in serialized.lower()
+    assert "deepseek" not in serialized.lower()
+    assert "qwen-vision" not in serialized.lower()
 
 
 def test_env_example_pins_current_stable_openclaw_and_qqbot_versions():
@@ -274,16 +283,14 @@ def test_env_example_pins_current_stable_openclaw_and_qqbot_versions():
     assert "QQBOT_ALLOWED_USER_OPENID=" in env_text
     assert "QQBOT_ALLOWED_MEMBER_OPENID=" in env_text
     assert "QQBOT_PROACTIVE_REVIEW_ENABLED=false" in env_text
-    assert "DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in env_text
+    assert "CODEX_PROXY_BASE_URL=http://host.docker.internal:18317/v1" in env_text
+    assert "CODEX_PROXY_TOKEN=replace-with-codex-proxy-token" in env_text
     assert "microsoft/Mage-VL" not in env_text
     assert "nvidia/LocateAnything-3B" not in env_text
-    assert "QWEN_MODEL_ID=qwen2.5vl:7b" in env_text
-    assert "QWEN_MEMORY_LIMIT=6g" in env_text
-    assert "QWEN_BASE_URL=http://qwen-vision:11434" in env_text
-    assert "QWEN_MODEL_CACHE_VOLUME=" in env_text
-    assert "QWEN_MODEL_CACHE_EXTERNAL=false" in env_text
     assert "QWEN_ASR_GPU_MEMORY_UTILIZATION=0.75" in env_text
     assert "QWEN_ASR_MAX_MODEL_LEN=2048" in env_text
+    assert "SENSENOVA_API_KEY" not in env_text
+    assert "DEEPSEEK_API_KEY" not in env_text
     assert "sk-" not in env_text
 
 
@@ -299,7 +306,7 @@ def test_setup_invokes_openclaw_only_through_docker_compose():
     assert "QQBOT_PROACTIVE_REVIEW_ENABLED" in setup
 
 
-def test_setup_requires_fallback_key_and_migrates_legacy_media_config():
+def test_setup_requires_codex_proxy_and_migrates_legacy_media_config():
     setup = (DEPLOY_DIR / "setup.sh").read_text()
 
     assert "validate-env.sh" in setup
@@ -308,7 +315,8 @@ def test_setup_requires_fallback_key_and_migrates_legacy_media_config():
     assert "qqbot-proactive-review-night" in setup
     assert "skipping proactive review job registration" in setup
     assert "environment-contract.txt" in (DEPLOY_DIR / "validate-env.sh").read_text()
-    assert "DEEPSEEK_API_KEY=replace-with-deepseek-api-key" in (DEPLOY_DIR / ".env.example").read_text()
+    assert "CODEX_PROXY_TOKEN=replace-with-codex-proxy-token" in (DEPLOY_DIR / ".env.example").read_text()
+    assert "qwen-vision" not in setup
     assert "Refreshing $RUNTIME_DIR/config/openclaw.json from the versioned defaults." in setup
     assert "cron list --all --json" in setup
     assert "cron remove" in setup
@@ -316,43 +324,31 @@ def test_setup_requires_fallback_key_and_migrates_legacy_media_config():
 
 def test_windows_launcher_and_local_compose_overlay_are_present():
     launcher = (DEPLOY_DIR / "Start-OpenClawDocker.ps1").read_text()
-    watcher = (DEPLOY_DIR / "Watch-OpenClawModel.ps1").read_text()
     overlay = (DEPLOY_DIR / "docker-compose.local.yml").read_text()
 
-    assert "DEEPSEEK_API_KEY" in launcher
+    assert "CODEX_PROXY_BASE_URL" in launcher
+    assert "CODEX_PROXY_TOKEN" in launcher
     assert "deepseek-api-key.dpapi" not in launcher
-    assert "Watch-OpenClawModel.ps1" in launcher
-    assert "SENSENOVA_API_KEY" in watcher
-    assert "fallback" in watcher.lower()
-    assert "deepseek/deepseek-chat" not in watcher
+    assert "Watch-OpenClawModel.ps1" not in launcher
     assert "*/10 8-23,0-1 * * *" in launcher
     assert "QQBOT_PROACTIVE_REVIEW_ENABLED" in launcher
     assert "*/30 2-7 * * *" in launcher
     assert "Asia/Shanghai" in launcher
     assert "environment:" in overlay
-    assert "DEEPSEEK_API_KEY" in overlay
-    assert "api.deepseek.com" not in overlay
+    assert "CODEX_PROXY_TOKEN" in overlay
     assert "sk-" not in launcher
-    assert "sk-" not in watcher
     assert "sk-" not in overlay
     assert "local-vision\\docker-compose.yml" not in launcher
-    assert (DEPLOY_DIR / "Start-OpenClawVision.ps1").exists()
-    assert (DEPLOY_DIR / "Stop-OpenClawVision.ps1").exists()
-    assert (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").exists()
+    assert not (DEPLOY_DIR / "Start-OpenClawVision.ps1").exists()
+    assert not (DEPLOY_DIR / "Stop-OpenClawVision.ps1").exists()
+    assert not (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").exists()
+    assert not (DEPLOY_DIR / "Watch-OpenClawModel.ps1").exists()
+    assert (ROOT / "scripts" / "codex_proxy_probe.py").exists()
     assert (DEPLOY_DIR / "Test-OpenClawEnvironment.ps1").exists()
     assert "Test-OpenClawEnvironment.ps1" in launcher
     assert "QQBOT_HOME_CHANNEL" in launcher
     assert "'cron', 'list'" in launcher
     assert "'cron', 'remove'" in launcher
-
-    capability_script = (DEPLOY_DIR / "Set-OpenClawMediaCapabilities.ps1").read_text(encoding="utf-8")
-    assert "media-capabilities.json" in capability_script
-    assert "Never claim to have seen an image" in capability_script
-    assert "ValidateSet('none', 'image')" in capability_script
-    assert "Remove('imageModel')" in capability_script
-    assert "Remove('local-vision')" in capability_script
-    assert "switch ($RestartGateway)" in capability_script or "if ($RestartGateway)" in capability_script
-    assert "$videoEnabled = $false" in capability_script
 
     history_patch = (DEPLOY_DIR / "qqbot-history-media-patch.mjs").read_text(encoding="utf-8")
     assert "qqbot-media-capabilities-v1" in history_patch
@@ -363,9 +359,7 @@ def test_windows_launcher_and_local_compose_overlay_are_present():
     assert "!event?.groupOpenid || groupInfo?.gate?.effectiveWasMentioned === true" in history_patch
     assert "hermes-qq-history-media-v1" in history_patch
     assert "normalizeLegacyMarkers" in history_patch
-    vision_launcher = (DEPLOY_DIR / "Start-OpenClawVision.ps1").read_text(encoding="utf-8")
-    assert "qwen-vision" in vision_launcher
-    assert "--force-recreate" in vision_launcher
+    assert "codex-proxy" in (DEPLOY_DIR / "openclaw.json").read_text(encoding="utf-8")
 
 
 def test_codex_overlay_uses_the_host_proxy_only_for_external_fetches():
@@ -536,11 +530,13 @@ def test_windows_batch_launcher_points_to_openclaw_startup_script():
     assert "deploy\\openclaw\\Start-OpenClawDocker.ps1" not in launcher
     assert "%~dp0..\\.." in launcher
     assert "docker compose" in launcher
-    assert "qwen2.5vl:7b" in launcher
+    assert "CODEX_PROXY_BASE_URL" in launcher
+    assert "CODEX_PROXY_TOKEN" in launcher
+    assert "qwen2.5vl:7b" not in launcher
     assert "--pull never" in launcher
     assert "powershell" not in launcher.lower()
     assert "sk-" not in launcher
-    assert "migrate_env_alias DEEPSEEK_API_KEY HERMES_DEEPSEEK_API_KEY" in launcher
+    assert "migrate_env_alias DEEPSEEK_API_KEY HERMES_DEEPSEEK_API_KEY" not in launcher
     assert "migrate_env_alias QQBOT_HOME_CHANNEL QQBOT_GROUP_OPENID" in launcher
     assert 'copy /y "openclaw.json" "runtime\\config\\openclaw.json" >nul\nif errorlevel 1 goto :fail_after_pushd' in launcher
     assert 'copy /y "%DEPLOY_DIR%\\bot-workspace\\AGENTS.md" "runtime\\workspace\\AGENTS.md" >nul\nif errorlevel 1 goto :fail_after_pushd' in launcher

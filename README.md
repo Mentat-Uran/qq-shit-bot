@@ -2,7 +2,7 @@
 
 这是一个 QQ 群聊机器人项目。当前唯一运行形态是 **OpenClaw + Docker**:OpenClaw `2026.8.2` 与官方 QQBot 2.x 插件 `@tencent-connect/openclaw-qqbot` `2.0.3` 全部运行在 Docker 中,宿主机不安装 OpenClaw、Node.js 或 QQ 插件。
 
-仓库只保留 OpenClaw Docker 运行链路与 QQ 机器人相关文档,不再维护宿主机上的 OpenClaw 或其他本地运行方案。Windows 保留本地 Qwen 视觉链路；macOS 使用独立 Compose 文件，通过 SenseNova 6.7 Flash-Lite 识图，再由 DeepSeek 文本模型生成最终 QQ 回复。迁移约束见 [`MAC_MIGRATION_SENSENOVA_LAN_REQUIREMENTS.md`](MAC_MIGRATION_SENSENOVA_LAN_REQUIREMENTS.md)。
+无论 Windows、macOS、Linux、WSL 还是硬件型号，Bot 都使用 Docker Compose 运行；文字和图片理解统一通过 OpenAI-compatible Codex 反代调用 `gpt-5.6-luna`。反代地址与 token 只从被 gitignore 的 `deploy/openclaw/.env` 读取，不把任何真实凭据写入仓库。Docker Desktop 默认使用 `host.docker.internal` 访问宿主机反代，Linux Codex overlay 使用 host network 时可以填写 `http://127.0.0.1:18317/v1`。
 
 ## 功能
 
@@ -11,9 +11,9 @@
 - Linux Codex overlay 还提供 CPU-only 群聊小游戏：海龟汤、成语接龙和猜成语。海龟汤复用开源 `nonebot-plugin-ai-turtle-soup` 引擎，开始/状态只展示汤面，不展示会泄露信息的标题；默认使用 50 道本地题库（含带 CC BY 署名的公开示例改编题和 30 道原创悬疑/惊悚/恐怖题），每个群独立持久化轮换，当前轮次不重复同一道汤面；支持 `开始海龟汤 悬疑惊悚恐怖`、`开始海龟汤 恐怖医院` 等自然主题提示词，LunaMax 负责是/否裁判，联网检索出题可通过 `GAME_PUZZLE_SOURCE=ai` 开启。海龟汤每次主持回答开头都会显示当前问题的短摘要，便于多人对应，不再显示提问者 ID。成语接龙和猜成语使用固定 MIT 成语库，不需要模型调用，直接在群里发四字成语即可。
 - Linux Codex overlay 的 QQ 菜单提供显式 TTS 朗读和语调选择：普通文字回复始终是文字，使用 `读：内容` 发语音；成功转写的 QQ 语音入站会把一次 AI 回答转成一次原生语音，菜单可选择温柔、播音、戏剧或正常语调。
 - 引用文本、图片、语音、文件和 QQ 小程序卡片摘要处理;小程序有标题时先搜索标题再解读,查不到时不编造正文。
-- Windows 文字主模型是商汤 SenseNova `deepseek-v4-flash`,官方 DeepSeek `deepseek-chat` 作为 fallback；Mac 使用官方 DeepSeek `deepseek-v4-flash` API，默认思考级别为 medium。
-- 本地 GPU 视觉:Qwen2.5-VL 7B(Ollama)是 Windows 链路的视觉路径。Mage-VL 视频桥与 NVIDIA LocateAnything-3B 图像融合方案已删除，不再构建或启动。
-- Mac 云视觉：`deploy/openclaw/docker-compose.mac.yml` 默认只启动 OpenClaw Gateway 与 `context-recovery`，不包含本地模型、GPU 或视频服务；图片由商汤 `sensenova-6.7-flash-lite` 识别，再交给官方 DeepSeek `deepseek-v4-flash` 生成最终回复。
+- 所有平台的文字、图片理解和 QQ 最终回复都使用 `codex-proxy/gpt-5.6-luna`，默认 `max` 推理；图片像素在同一 OpenAI-compatible 请求中发送给 Codex 反代。
+- 主 Bot 栈不包含本地视觉模型、Ollama、SenseNova 或官方 DeepSeek provider；视频分析仍明确关闭。Linux overlay 的 Qwen3-TTS/ASR 和 ComfyUI 只属于按需启动的独立 Docker 辅助能力，不改变核心模型路由。
+- `deploy/openclaw/docker-compose.yml`、`docker-compose.mac.yml` 和 Linux Codex overlay 都运行 Docker 服务；macOS 的 Operations Console 是可选的宿主机只读进程，不是 Bot 运行时或模型服务。
 - 关闭 OpenClaw 终端、Control UI 默认仅绑定 `127.0.0.1` 且需 token 认证;明确启用 Mac LAN 模式后，Operations Console 可绑定具体局域网 IPv4 并使用无 Token 的脱敏只读访问;`exec`/`read`/`write` 工具全局禁用;QQ 私聊和群聊 @ 默认开放，群聊回复仍受运行时触发规则限制。
 
 ## 快速开始(OpenClaw + Docker)
@@ -25,15 +25,15 @@
 ```bash
 cd deploy/openclaw
 cp .env.example .env
-# 填写 .env 中的 QQ、模型凭据与 OPENCLAW_GATEWAY_TOKEN
+# 填写 .env 中的 QQ 凭据、CODEX_PROXY_BASE_URL、CODEX_PROXY_TOKEN 与 OPENCLAW_GATEWAY_TOKEN
 ./setup.sh
 ```
 
-本机 CachyOS 已有 Codex 兼容反代时，使用 `./start-codex.sh` 启动本地专用覆盖层：它保留完整英文 `SOUL.md`，使用 `qq-shit-bot` 代称，把文字和图片请求发送到本机 `127.0.0.1:18317` 的 `gpt-5.6-luna`，思考级别为 `max`，并按当前意图自动切换紧凑社交模式与实用答复模式。收到图片时先概括可见内容，再给自然评论或锐评；社交模式不设硬字符上限，但不会写成长篇大论。提示词给出行为方向，不把具体示例、固定关键词或固定台词当作模板。它启用同一模型的图片输入、DuckDuckGo 搜索、上下文裁剪/压缩和 QQ 插件，不启动 `qwen-vision`；Qwen3-TTS/ASR 只由 loopback GPU gate 按需启动，不要求 SenseNova/DeepSeek 凭据。引用或最近图片若只有 QQ 签名下载地址，会先通过精确限制的 QQ 媒体下载路径转成本地图片，不把签名 URL 交给通用图像工具，也不关闭全局 SSRF 防护。详细命令见 [`deploy/openclaw/README.md`](deploy/openclaw/README.md)。
+若宿主机已有 Codex 兼容反代，Linux 可使用 `./start-codex.sh` 启动带小游戏、TTS/ASR 和更大上下文策略的 Docker overlay；它仍从同一 `.env` 读取 `CODEX_PROXY_BASE_URL` 与 `CODEX_PROXY_TOKEN`，并把文字和图片请求发送到 `gpt-5.6-luna`。引用或最近图片若只有 QQ 签名下载地址，会先通过精确限制的 QQ 媒体下载路径转成本地图片，不把签名 URL 交给通用图像工具，也不关闭全局 SSRF 防护。详细命令见 [`deploy/openclaw/README.md`](deploy/openclaw/README.md)。
 
 ### Windows
 
-直接运行 [`scripts/windows/Start-OpenClawQQBot.bat`](scripts/windows/Start-OpenClawQQBot.bat)(或桌面快捷方式)。它是纯 BAT 入口,直接调用 Docker Compose,从 `deploy/openclaw/.env` 读取 QQ 与模型凭据;密钥永不写入仓库。
+直接运行 [`scripts/windows/Start-OpenClawQQBot.bat`](scripts/windows/Start-OpenClawQQBot.bat)(或桌面快捷方式)。它是纯 BAT 入口，直接调用 Docker Compose，从 `deploy/openclaw/.env` 读取 QQ 凭据和 Codex 反代 token；密钥永不写入仓库。
 
 启动后打开 Control UI:`http://127.0.0.1:18789`,用 `.env` 里的 `OPENCLAW_GATEWAY_TOKEN` 认证。
 
@@ -49,7 +49,7 @@ scripts/mac/status.sh
 scripts/mac/console.sh
 ```
 
-停止、日志和环境检查分别使用 `scripts/mac/stop.sh`、`scripts/mac/logs.sh` 和 `scripts/mac/check-env.sh`。Mac 启动只加载 `docker-compose.mac.yml`，不会启动 Windows Compose 中的本地视觉服务；运行时配置使用 `deploy/openclaw/openclaw.mac.json`。默认 Gateway 与 Operations Console 都绑定 `127.0.0.1`，需要同网段 Windows 或手机访问时运行 `scripts/mac/configure-lan-console.sh`；它会绑定具体 Mac 局域网 IPv4 并启用不带 Token 的脱敏只读控制台。不要绑定 `0.0.0.0`/`::`，也不要做公网端口转发。合盖运行只按 macOS 支持的 clamshell 模式处理，不由 Bot 修改系统睡眠策略。
+停止、日志和环境检查分别使用 `scripts/mac/stop.sh`、`scripts/mac/logs.sh` 和 `scripts/mac/check-env.sh`。Mac 启动只加载 `docker-compose.mac.yml`，运行时配置使用 `deploy/openclaw/openclaw.mac.json`，文字与图片同样经 `CODEX_PROXY_BASE_URL` 调用 Codex 反代。默认 Gateway 与 Operations Console 都绑定 `127.0.0.1`，需要同网段 Windows 或手机访问时运行 `scripts/mac/configure-lan-console.sh`；它会绑定具体 Mac 局域网 IPv4 并启用不带 Token 的脱敏只读控制台。不要绑定 `0.0.0.0`/`::`，也不要做公网端口转发。合盖运行只按 macOS 支持的 clamshell 模式处理，不由 Bot 修改系统睡眠策略。
 
 ### Windows 常用命令
 
@@ -59,7 +59,7 @@ docker compose logs -f openclaw-gateway
 docker compose run --rm openclaw-cli status
 docker compose run --rm openclaw-cli config validate
 docker compose run --rm openclaw-cli plugins inspect openclaw-qqbot
-docker compose exec qwen-vision ollama list
+python ../../scripts/codex_proxy_probe.py --env-file .env
 python ../../scripts/openclaw_diagnostic.py --mode health --pretty
 ```
 
@@ -76,22 +76,19 @@ python scripts/openclaw_diagnostic.py --mode health --deployment mac \
   --env-file deploy/openclaw/.env --compose-dir deploy/openclaw --pretty
 ```
 
-## 模型与额度切换
+## 模型与反代 token
 
-- Windows 主模型:SenseNova `deepseek-v4-flash`(`https://token.sensenova.cn/v1`),官方 DeepSeek `deepseek-chat`(`https://api.deepseek.com/v1`)作为 fallback。
-- Mac 路由：`sensenova-vision/sensenova-6.7-flash-lite` 只负责当前图片理解；最终文字固定使用官方 `deepseek/deepseek-v4-flash`(`https://api.deepseek.com/v1`)，默认思考级别为 `medium`。
+- 三份平台配置 `openclaw.json`、`openclaw.mac.json` 和 `openclaw.codex.json` 都将文字与图片路由固定为 `codex-proxy/gpt-5.6-luna`，不配置 provider fallback。
+- 在 `deploy/openclaw/.env` 中设置 `CODEX_PROXY_BASE_URL` 与 `CODEX_PROXY_TOKEN`。Docker Desktop 推荐 `http://host.docker.internal:18317/v1`；Linux host-network overlay 推荐 `http://127.0.0.1:18317/v1`。`CODEX_PROXY_TOKEN` 是反代认证 token，与 QQ AppSecret、Gateway token 是三种不同凭据。
 - 请求失败时错误与内部诊断 payload 会被本地 `reply_payload_sending` 钩子过滤,只留在网关日志里。
 
 ## 部署架构
 
-- `openclaw-gateway`:QQ WebSocket、会话/上下文、模型路由与最终中文回复,不加载重型视觉模型。
-- `qwen-vision`:私有 Ollama `Qwen2.5-VL 7B` 图片理解与 OCR,GPU 按需加载,`OLLAMA_KEEP_ALIVE=3m` 短保活。
-- `docker-compose.mac.yml`:Mac 专用服务集合，只包含 Gateway、`context-recovery` 和一次性诊断过滤初始化；图片数据由 SenseNova 6.7 Flash-Lite 处理，不产生本地模型权重。
-- 重型视觉源码和历史 Compose 已删除，当前部署只保留 Qwen2.5-VL 视觉路径。
+- `openclaw-gateway`:QQ WebSocket、会话/上下文、Codex 反代模型路由与最终中文回复；同一个 Codex 模型声明同时接收文字和图片。
+- `docker-compose.yml` 与 `docker-compose.mac.yml`:跨平台的 Docker Bot 服务集合，都包含 Gateway、`context-recovery` 和一次性诊断过滤初始化；Docker Desktop 通过 `host.docker.internal` 访问宿主机 Codex 反代。
+- `docker-compose.codex.yml`:Linux host-network overlay，复用同一 Codex token，并按需提供 CPU-only 游戏和独立的 TTS/ASR/ComfyUI Docker 辅助服务。
 - `context-recovery`:监控网关日志,上下文溢出或会话卡死时自动重置对应群会话。
 - `qq-diagnostic-filter-init`:一次性初始化服务,把本地钩子与补丁脚本以 `0644` 种入命名卷。
-
-Qwen 不暴露宿主机端口;图片服务在 Compose 私有网络内访问 `qwen-vision:11434`。
 
 ## 访问与证据边界
 
@@ -109,7 +106,7 @@ Qwen 不暴露宿主机端口;图片服务在 Compose 私有网络内访问 `qwe
 
 提交 Issue 时请尽量提供:
 
-- 部署方式(OpenClaw Docker / 手动)、Docker Desktop 版本、显卡与显存型号。
+- 部署方式（必须为 OpenClaw Docker）、操作系统/架构、Docker Desktop 或 Docker Engine 版本，以及可选的显卡信息。
 - 发生时间、脱敏后的网关日志片段和是否明确 @ 机器人。
 - 可复现步骤和期望行为。
 

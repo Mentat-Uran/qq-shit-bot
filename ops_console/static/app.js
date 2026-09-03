@@ -70,7 +70,6 @@ const sourceLabels = {
   "macOS sysctl/vm_stat": "macOS 内存状态",
   os: "系统负载",
   "os.getloadavg": "系统负载",
-  "deploy/openclaw/runtime/model-route-state.json": "模型路由状态文件",
   "docker info": "Docker 信息",
   "docker compose": "Docker Compose",
   "docker compose ps --all": "Docker Compose 服务状态",
@@ -82,12 +81,10 @@ const sourceLabels = {
   "deploy/openclaw/runtime/config/agents/main/sessions/*.jsonl": "OpenClaw 会话元数据",
   "deploy/openclaw/openclaw.json": "OpenClaw 配置文件",
   "deploy/openclaw/openclaw.mac.json": "OpenClaw Mac 配置文件",
-  "macOS SenseNova cloud vision": "SenseNova 云视觉（Mac）",
-  "nvidia-smi on host": "主机 nvidia-smi",
-  "nvidia-smi via qwen-vision": "qwen-vision 内 nvidia-smi",
-  "nvidia-smi / qwen-vision": "nvidia-smi / qwen-vision",
-  "ollama ps via qwen-vision": "qwen-vision 内 Ollama",
+  "Codex reverse proxy model route": "Codex 反代模型路由",
+  "Codex reverse proxy model request": "Codex 反代模型请求",
   "OpenClaw /healthz on loopback": "本机 OpenClaw /healthz",
+  "OpenClaw /healthz on local host": "本机 OpenClaw /healthz",
   "gateway log pattern": "网关日志模式",
   "structured local event model": "本地结构化事件模型",
   "structured local session model": "本地结构化会话模型",
@@ -151,18 +148,17 @@ function renderServices(services) {
 function renderResources(snapshot) {
   const host = snapshot.dashboard.host || {}; const gpu = snapshot.dashboard.gpu || {}; const docker = snapshot.runtime.docker || {};
   const hostRam = host.memory || {}; const disk = host.disk || {}; const cpu = host.cpu || {};
-  const mac = snapshot.deployment === "mac";
   $("#resource-list").innerHTML = [
     ["主机 CPU", number(cpu.percent, "%"), cpu.percent, "", evidenceText(cpu)],
     ["主机 RAM", `${bytes(hostRam.usedBytes)} / ${bytes(hostRam.totalBytes)}`, hostRam.usedPercent, "mint", evidenceText(hostRam)],
     ["Docker RAM", bytes(docker.systemRam?.bytes), docker.systemRam?.bytes && docker.systemRam.bytes > 0 ? Math.min(100, (docker.systemRam.bytes / Math.max(1, hostRam.totalBytes || docker.systemRam.bytes)) * 100) : null, "cyan", "来源：Docker stats · 系统 RAM（不是 GPU VRAM）"],
-    [mac ? "GPU VRAM（不适用）" : "GPU VRAM", mac ? "不适用" : `${bytes(gpu.vramUsedBytes)} / ${bytes(gpu.vramTotalBytes)}`, mac ? null : gpu.vramTotalBytes ? (gpu.vramUsedBytes / gpu.vramTotalBytes) * 100 : null, "", evidenceText(gpu)],
+    ["GPU / 核心模型（不适用）", "不适用", null, "", evidenceText(gpu)],
   ].map(([label, value, percent, color, source]) => `<div class="resource-item"><div class="resource-item-head"><span>${esc(label)}</span><strong class="resource-value">${esc(value)}</strong></div>${meter(percent, color)}<span class="eyebrow">${esc(source)}</span></div>`).join("");
   $("#runtime-resource-cards").innerHTML = [
     ["主机 CPU", number(cpu.percent, "%"), evidenceText(cpu), cpu.percent],
     ["主机 RAM", `${bytes(hostRam.usedBytes)} / ${bytes(hostRam.totalBytes)}`, `${number(hostRam.usedPercent, "%")} · ${evidenceText(hostRam)}`, hostRam.usedPercent],
     ["Docker 系统 RAM", bytes(docker.systemRam?.bytes), "来源：Docker stats MEM USAGE · 不是 VRAM", docker.systemRam?.bytes && hostRam.totalBytes ? docker.systemRam.bytes / hostRam.totalBytes * 100 : null],
-    [mac ? "GPU VRAM（不适用）" : "GPU VRAM", mac ? "不适用" : `${bytes(gpu.vramUsedBytes)} / ${bytes(gpu.vramTotalBytes)}`, mac ? `Mac 使用 SenseNova 云视觉 · ${evidenceText(gpu)}` : `${gpu.name || "GPU 未知"} · ${evidenceText(gpu)}`, mac ? null : gpu.vramTotalBytes ? gpu.vramUsedBytes / gpu.vramTotalBytes * 100 : null],
+    ["GPU / 核心模型（不适用）", "不适用", `主模型和图片理解走 Codex 反代 · ${evidenceText(gpu)}`, null],
   ].map(([label, value, source, percent]) => `<article class="resource-card"><p class="eyebrow">${esc(label)}</p><h4>${esc(value)}</h4>${meter(percent)}<small>${esc(source)}</small></article>`).join("");
   $("#route-meta").dataset.disk = disk.status || "unknown";
   $("#route-meta").title = `磁盘：${bytes(disk.usedBytes)} / ${bytes(disk.totalBytes)}`;
@@ -238,7 +234,6 @@ function renderLogs(snapshot) {
 function render(snapshot) {
   state.snapshot = snapshot;
   const dashboard = snapshot.dashboard || {}; const status = dashboard.status || "unknown";
-  const mac = snapshot.deployment === "mac";
   $("#overall-status").textContent = statusLabel(status);
   $("#overall-status").style.color = status === "operational" ? "var(--mint)" : status === "degraded" ? "var(--amber)" : "var(--ink)";
   $("#overall-stamp").textContent = statusLabel(status);
@@ -254,9 +249,9 @@ function render(snapshot) {
   $("#route-meta").textContent = route.status === "available"
     ? `${route.route || "路由未知"} · ${route.lastProbeAt ? `探测时间 ${time(route.lastProbeAt)}` : "仅配置值，未执行可用性探测"}`
     : route.detail || "没有可用的模型路由证据";
-  $("#vision-label").textContent = mac ? "SenseNova 云视觉 / 当前模型" : "本地视觉 / 当前模型";
-  $("#ollama-model").textContent = mac ? "sensenova-6.7-flash-lite" : dashboard.ollama?.currentModel || "未采集";
-  $("#ollama-source").textContent = mac ? "图片识别结果交给 DeepSeek 文本模型；GPU/本地模型不适用" : dashboard.ollama?.status === "available" ? evidenceText(dashboard.ollama) : dashboard.ollama?.detail || "视觉模式未采集";
+  $("#vision-label").textContent = "Codex 反代 / 当前模型";
+  $("#codex-model").textContent = dashboard.codexProxy?.model || route.primary || "gpt-5.6-luna";
+  $("#codex-source").textContent = dashboard.codexProxy?.status === "available" ? evidenceText(dashboard.codexProxy) : dashboard.codexProxy?.detail || "反代请求未采集";
   const consoleInfo = snapshot.console || {};
   const lanAccess = consoleInfo.bind && !["127.0.0.1", "::1", "localhost"].includes(consoleInfo.bind);
   $("#access-badge").textContent = lanAccess ? (consoleInfo.authRequired === false ? "LAN 访问（无 Token）" : "受保护 LAN 访问") : "仅本机访问";

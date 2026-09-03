@@ -1,336 +1,251 @@
-# qq-shit-bot + Docker
+# qq-shit-bot Docker deployment
 
-This deployment runs OpenClaw and the official Tencent QQBot 2.x plugin `@tencent-connect/openclaw-qqbot` entirely in Docker. It does not install OpenClaw, Node.js packages, or the QQ plugin on the host.
+This directory contains the only supported QQ Bot deployment shape. Windows,
+macOS, Linux, WSL, and different CPU/GPU machines all run OpenClaw, the
+Tencent QQ plugin, the Gateway, and recovery services in Docker Compose. The
+host provides Docker Desktop or Docker Engine and network access; it does not
+install OpenClaw or the QQ plugin directly.
 
-This is the only supported deployment family for the QQ bot. Windows keeps the Qwen/Ollama Compose path below; macOS uses the separate `docker-compose.mac.yml` path and does not start a local vision service. OpenClaw and all QQ bot services run in Docker; the host only needs Docker Desktop or Docker Engine.
+The Bot's text and image-understanding route is the same on every platform:
+`codex-proxy/gpt-5.6-luna`, reached through an OpenAI-compatible Codex reverse
+proxy. The token is read from the ignored local `.env`; it is never committed,
+printed, copied into the runtime workspace, or returned by the diagnostics API.
+The optional Linux voice and game sidecars are also Docker services. Voice
+sidecars are auxiliary media services and do not change the core text/image
+route.
 
-The Compose project name is `qq-shit-bot`, matching the GitHub remote repository. Service containers therefore use names such as `qq-shit-bot-openclaw-gateway-1`; persistent volumes use the `qqshitbot-openclaw_*` prefix.
+The Compose project name is `qq-shit-bot`. Persistent volumes use the
+`qqshitbot-openclaw_*` prefix for the default deployment and
+`qqshitbot-openclaw-mac_*` for the macOS image.
 
-## What it configures
+## Route and required environment
 
-- OpenClaw `2026.8.2` and the latest stable `@tencent-connect/openclaw-qqbot` `2.0.3`; the core and plugin follow their respective stable release tracks.
-- Windows uses SenseNova `deepseek-v4-flash` as the primary paid text-model route with official DeepSeek `deepseek-chat` as fallback. The Mac route uses SenseNova only for image understanding and official DeepSeek `deepseek-v4-flash` for final text generation, with the default thinking level set to `medium`. Keys are read from the ignored `.env` file and are not stored in the repository.
-- `bot-workspace/AGENTS.md` and the repository's `SOUL.md` as the OpenClaw workspace context. The root `AGENTS.md` is reserved for repository development and is never copied to the Bot.
-- Token-authenticated Control UI published only on `127.0.0.1`.
-- OpenClaw's operator terminal disabled.
-- `exec`, `read`, and `write` agent tools denied globally and in QQ groups.
-- Only the official QQ and DuckDuckGo plugins plus the local QQ diagnostic filter are allowlisted by default.
-- The unrelated bundled Codex extension is explicitly disabled because it is not needed by the QQ bot and is incompatible with this pinned gateway runtime.
-- Web search uses the official no-key `@openclaw/duckduckgo-plugin` `2026.8.2`; no search credential is copied or exposed.
-- A local `reply_payload_sending` hook suppresses error and model-fallback payloads in QQ groups; the full diagnostic remains in the gateway log for local troubleshooting.
-- QQ direct messages and group mentions are open to everyone by default (`dmPolicy`/`groupPolicy` = `open`); group replies still require an @ mention. Re-enable the owner allowlist by setting `dmPolicy`/`groupPolicy` to `allowlist` and adding the OpenIDs to `allowFrom`/`groupAllowFrom`.
-- Startup model discovery disabled because all providers are declared explicitly; model loading still occurs on the first request.
-- Qwen2.5-VL 7B is the only enabled image-understanding path. The NVIDIA LocateAnything-3B image-fusion fallback and the Microsoft Mage-VL video bridge have been removed from the repository and deployment path. Their model routes are absent from `openclaw.json`, and no video analysis is performed by the gateway.
-- On Windows, the Qwen2.5-VL Ollama service, OpenClaw gateway, and context-recovery sidecar are the active services in the default Compose project. Qwen has no host port and is reached at `qwen-vision:11434` on the private Compose network. Mac does not load this service.
-- QQ image messages can use a two-message workflow for mobile clients: send the image first, then send a message that @mentions the bot. A media message that already includes the bot mention is passed directly; ordinary non-media chatter remains mention-gated.
-- Group sessions have a 60-minute idle reset, and the `context-recovery` sidecar watches the gateway log for an unrecoverable context overflow or stalled agent run and resets the affected QQ group session automatically. Existing log contents are not replayed when the sidecar starts, so an old failure cannot reset a newly started session.
-
-The Windows configured model route uses SenseNova as primary and official DeepSeek as fallback. The Mac configured text route uses official DeepSeek V4 Flash directly after SenseNova image understanding, with medium thinking enabled by default. The normal Windows BAT path does not run a host-side watcher; provider and fallback diagnostics remain local and are filtered before QQ delivery.
-
-QQ group delivery is guarded separately from model failover. Successful fallback replies are delivered normally, while `isError` and `isFallbackNotice` reply payloads are cancelled before the QQ adapter sees them. This prevents provider, quota, rate-limit, busy, and internal stack details from appearing in the group without hiding the corresponding gateway logs.
-
-The Windows launcher reads the official DeepSeek key from the ignored `.env` file. It never writes the key to the repository.
-
-## Start
+Copy the template before starting:
 
 ```bash
 cd deploy/openclaw
 cp .env.example .env
+chmod 600 .env                         # Unix-like hosts
 ```
 
-Edit `.env` and replace every `replace-with-*` value. QQ direct messages use a user OpenID, while group messages use a member OpenID; do not assume they are identical.
+Fill in the QQ credentials, Gateway token, and these Codex proxy values:
 
-Then run:
+```dotenv
+CODEX_PROXY_BASE_URL=http://host.docker.internal:18317/v1
+CODEX_PROXY_TOKEN=replace-with-codex-proxy-token
+```
+
+`CODEX_PROXY_BASE_URL` must be reachable from the Docker container. Docker
+Desktop normally resolves `host.docker.internal` to the host. The Linux
+Codex overlay uses host networking and can instead point at the host loopback
+proxy, for example `http://127.0.0.1:18317/v1`. Do not publish the proxy or
+the Gateway to the public Internet as a troubleshooting shortcut.
+
+The other required values are `QQBOT_APP_ID`, `QQBOT_CLIENT_SECRET`,
+`OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_TZ`, and the pinned image/plugin values in
+`.env.example`. `OPENCLAW_GATEWAY_TOKEN` protects the OpenClaw Control UI and
+is unrelated to `CODEX_PROXY_TOKEN`. QQ allowlist OpenIDs and the optional
+proactive-review home channel remain local configuration values.
+
+Use the redacted environment check before starting:
 
 ```bash
+./validate-env.sh --diagnose --allow-placeholders
+```
+
+The normal validation command rejects placeholders. Both validators report
+presence only and never output credential values.
+
+## Standard Docker Compose deployment
+
+The standard Compose files are platform-neutral and are used for Windows,
+WSL, and a normal Docker Engine host:
+
+```bash
+cd deploy/openclaw
+./validate-env.sh
 ./setup.sh
 ```
 
-The Unix setup script uses `environment-contract.txt`; the Windows BAT launcher performs a value-presence and placeholder check directly against `.env`. Neither normal path prints secret values. For a no-Docker preflight use `./validate-env.sh --diagnose --allow-placeholders`.
+`setup.sh` prepares the ignored `runtime/` directories, copies the current
+Bot workspace files, seeds the local diagnostic/filter patches, installs the
+pinned Tencent QQ and DuckDuckGo plugins in a one-shot Docker CLI container,
+validates the config, and starts `openclaw-gateway` plus `context-recovery`.
+It does not start a host-side model server.
 
-The script creates `runtime/`, copies the repository persona files, installs the official QQ plugin inside a one-shot OpenClaw container, validates the config, ensures the in-project `qwen-vision` service has `qwen2.5vl:7b`, and starts the gateway plus the context-recovery sidecar. It accepts either the Docker Compose plugin (`docker compose`) or the standalone `docker-compose` command. Secrets and runtime state remain under ignored local paths.
+The standard core services are:
 
-Open the Control UI at `http://127.0.0.1:18789` and authenticate with `OPENCLAW_GATEWAY_TOKEN` from `.env`.
+| Service | Role | Default exposure |
+| --- | --- | --- |
+| `qq-diagnostic-filter-init` | Seed local patches and runtime ownership | One-shot container |
+| `openclaw-gateway` | OpenClaw Gateway and QQ WebSocket adapter | `127.0.0.1:18789` |
+| `openclaw-cli` | One-shot Docker CLI for plugin/config operations | Compose `cli` profile |
+| `context-recovery` | Bounded context-overflow and stalled-run recovery | Internal Compose network |
 
-## Linux host + existing Codex local proxy
+The standard and macOS Compose files do not contain a local vision model. The
+Gateway declares text and image input on the Codex route and explicitly keeps
+video analysis disabled. The historical local vision, video-bridge, and
+image-fusion paths are not supported and must not be reintroduced through a
+launcher or an additional Compose service.
 
-On a Linux host that already runs the Codex-compatible local proxy at
-`127.0.0.1:18317`, use the host-specific overlay instead of the default
-SenseNova/DeepSeek + Qwen path:
+Open the local Control UI at `http://127.0.0.1:18789` and authenticate with
+`OPENCLAW_GATEWAY_TOKEN`. This proves only that the local UI is reachable; it
+does not prove a QQ message was received, answered, or delivered externally.
+
+## Windows
+
+The formal Windows entrypoint is a pure BAT launcher and uses Docker Compose
+only:
+
+```bat
+scripts\windows\Start-OpenClawQQBot.bat
+```
+
+It locates the repository relative to the BAT file, checks the ignored
+`deploy\openclaw\.env`, prepares runtime files, validates Compose, installs or
+checks the pinned plugins, validates the OpenClaw configuration, and starts
+the Gateway and recovery service. It requires both `CODEX_PROXY_BASE_URL` and
+`CODEX_PROXY_TOKEN`; no local model executable is started. The optional
+PowerShell helper `deploy/openclaw/Start-OpenClawDocker.ps1` follows the same
+Docker-only route. Credential binding helpers must write only to the ignored
+`.env` file.
+
+For a provider-level, redacted request check from a configured environment:
+
+```powershell
+python scripts/codex_proxy_probe.py --env-file deploy/openclaw/.env
+```
+
+The probe checks one OpenAI-compatible Codex request and prints only status
+and capability information. It does not prove that a QQ attachment reached
+the Gateway or that a reply reached a QQ client.
+
+## macOS and Docker Desktop
+
+macOS uses the same Codex route and Docker-only Bot runtime with the
+Mac-specific image and Compose file. From the repository root:
+
+```bash
+scripts/mac/check-env.sh
+scripts/mac/start.sh
+scripts/mac/status.sh
+scripts/mac/logs.sh 80
+scripts/mac/console.sh
+scripts/mac/stop.sh
+```
+
+`start.sh` builds the small macOS image, copies `openclaw.mac.json` into the
+ignored runtime config, seeds the local patches, validates the pinned plugins,
+and starts only the core Gateway and recovery containers. Docker Desktop must
+be running; enable its start-at-login option when unattended recovery is
+desired. The host Operations Console is an optional read-only Python process,
+not a replacement for the Docker Bot runtime.
+
+The default macOS bindings are loopback-only. For a trusted LAN, use
+`scripts/mac/configure-lan-console.sh` to bind to one detected concrete LAN
+IPv4 and expose only redacted read-only console data. Never use wildcard
+bindings or router port forwarding. A MacBook sleeps with its Docker Desktop
+VM when the lid closes; supported clamshell hardware and power conditions are
+required for continuous operation. Do not add a permanent lid-sleep bypass.
+See [`docs/MAC_RUNTIME_STABILITY.md`](../../docs/MAC_RUNTIME_STABILITY.md) for
+the recovery runbook.
+
+## Linux Codex overlay
+
+The Linux overlay is still Docker-based, but adds the local host-network
+services used by this host for optional games and voice features. It is useful
+when the Codex reverse proxy listens only on the Linux host loopback:
 
 ```bash
 cd deploy/openclaw
 ./start-codex.sh
 ```
 
-This overlay keeps the repository's complete English `SOUL.md`, routes text
-and image requests to `codex-proxy/gpt-5.6-luna` with `max` thinking, and
-uses the official no-key `@openclaw/duckduckgo-plugin` `2026.8.2`. The local model catalog
-declares the same route as accepting text and image input; `qwen-vision` is not
-started for this overlay. Qwen3-TTS and Qwen3-ASR are started on demand by the
-loopback GPU gate. It enables bounded tool-result
-pruning, safeguard compaction, a declared 262,144-token context window, a
-twelve-message QQ group history candidate window with a local
-bounded prefilter, a stable per-session provider prompt-cache key, a small
-steer queue, and a
-60-minute group idle reset. It does not start `qwen-vision` and does not
-require the unused SenseNova or DeepSeek credentials.
+The overlay copies `openclaw.codex.json`, uses host networking for the Gateway
+and recovery path so `127.0.0.1:18317` is reachable, and keeps the Gateway
+bound to its local port. It requires a running Docker daemon, Compose plugin,
+the configured Codex values, and a systemd user manager because the optional
+GPU lease service coordinates voice sidecars.
 
-The persona name is `qq-shit-bot`. Its full English prompt selects between two
-behaviors from the current message: social mode keeps banter, memes, and
-low-stakes reactions compact, and for actual images it first summarizes visible
-content before adding a context-fitting reaction or roast; practical mode handles
-explicit search, explanation, writing, comparison, coding, troubleshooting, and
-other concrete requests at a normal useful length. Mode selection follows intent
-and context instead of a fixed keyword list or reply template. Social mode has
-no hard character cap, but it should not become a long essay. When a quoted or
-recent QQ image is represented only by a signed `multimedia.nt.qq.com.cn`
-download URL, the overlay fetches that exact QQ media endpoint into a local
-image file and puts it into OpenClaw's canonical image-media context before
-model processing; it does not pass the signed URL to the
-generic image tool or disable global SSRF protection. The runtime workspace
-keeps the same distinction and still denies command execution, file access,
-   host control, and private-data disclosure. A QQ merged-forward/chat-record card is
-   recursively expanded when the event contains its message nodes; a title, preview,
-   or record reference alone is reported as incomplete instead of being treated as
-   the full record.
+The overlay adds these Docker-only auxiliary services:
 
-The gateway and recovery sidecar use host networking only so the containers
-can reach the loopback-only Codex proxy; OpenClaw itself remains bound to
-`127.0.0.1:18789`. On this host, the gateway also enables Node's environment
-proxy support and defaults web-search traffic to the existing loopback FlClash
-HTTP proxy at `127.0.0.1:7890`; the QQ control API, local model proxy, and local
-addresses stay direct through `NO_PROXY`; the signed QQ multimedia host is
-deliberately proxied for the image-specific recovery path. Override `OPENCLAW_HTTP_PROXY`,
-`OPENCLAW_HTTPS_PROXY`, or `OPENCLAW_NO_PROXY` only when the local network
-layout differs. The QQ AppID/AppSecret still belong only in the ignored `.env`
-file. Use the same Compose overlay for later checks or shutdown:
+- `qqbot-game`: CPU-limited game API on `127.0.0.1:18104`; its AI referee uses
+  the same Codex base URL/token, while the text-first games need no model call;
+- `qwen-tts` and `qwen-asr`: on-demand voice sidecars behind the loopback GPU
+  gate, with their model caches and device access kept local to this overlay;
+- the existing ComfyUI integration: coordinated by the same GPU lease and
+  not part of the core text/image-understanding path.
+
+Only the auxiliary voice/generation services use local GPU model resources.
+Their availability must not be reported as proof that the Codex route or QQ
+delivery works. The game and voice state is local runtime state and remains
+outside Git.
+
+To inspect or stop the overlay, reuse the complete file set:
+
+```bash
+docker compose --env-file .env \
+  -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.codex.yml \
+  ps
+docker compose --env-file .env \
+  -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.codex.yml \
+  down
+```
+
+## QQ media, context, and voice boundaries
+
+The QQ media patch accepts a direct image attachment or the supported
+two-message flow where the image is sent first and the bot is mentioned in a
+follow-up. Signed QQ media URLs are fetched into canonical local image context
+only after the event is allowed; they are not passed to a generic unrestricted
+URL tool. Video remains disabled. A forwarded chat record is expanded only
+when its message nodes are present; a title or preview alone is incomplete.
+
+The runtime workspace copies `bot-workspace/AGENTS.md` and the repository
+`SOUL.md`. The root repository `AGENTS.md` is a development handbook and is
+never copied into the Bot workspace. Runtime rules keep command execution,
+arbitrary file access, host control, and private-data disclosure denied.
+
+Voice is an explicit delivery feature rather than a conversation mode. Text
+replies remain text unless the user requests a voice action or the configured
+private/group voice preference applies. A failed voice service falls back to
+one text answer. These delivery behaviors are independent from the Codex
+text/image request route.
+
+## Verification and evidence boundaries
+
+Run the redacted local checks from the repository root:
+
+```bash
+python3 scripts/openclaw_diagnostic.py --mode preflight --pretty
+python3 scripts/openclaw_diagnostic.py --mode health --pretty
+python3 scripts/codex_proxy_probe.py --env-file deploy/openclaw/.env
+python3 scripts/security_audit.py --json
+```
+
+The repository tests and CI validate source behavior, Compose shape, launch
+wiring, and secret boundaries. The health report separates container state,
+Gateway health, configured Codex route, and log observations. The Codex probe
+adds request-level evidence when a real local token and reachable proxy are
+available. None of these checks proves external QQ delivery, third-party
+quota, a user-visible client result, or a production deployment.
+
+Do not place `.env`, tokens, API responses, QQ identifiers, message bodies,
+images, Docker volumes, logs, model caches, or generated runtime state in a
+commit. Before pushing, inspect `git status --short`, `git diff --check`, and
+the tracked-file security audit.
+
+## Stop and recovery
+
+Stop the core standard deployment with:
 
 ```bash
 docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.local.yml \
-  -f docker-compose.codex.yml ps
-docker compose --env-file .env \
-  -f docker-compose.yml -f docker-compose.local.yml \
-  -f docker-compose.codex.yml down
+  down
 ```
 
-### TTS 朗读与语调
-
-The QQ feature menu keeps TTS as an explicit action rather than a conversation
-mode. `🔊/🔇` voice-mode switches are intentionally not present: ordinary text
-replies remain text-only. Use `读：内容` for a native QQ voice message, or use
-`温柔读：内容`、`播音读：内容`、`戏剧读：内容`、`正常读：内容` for a one-off
-explicit tone. The menu's `温柔语调`、`播音语调`、`戏剧语调`、`正常语调`
-buttons select the tone used by a later bare `读：内容` request and by an
-automatic voice reply in the current private chat or group; an explicit styled
-prefix takes precedence. `当前语调` reports the selection.
-
-When a QQ voice attachment is successfully transcribed, the normal AI turn is
-run once and the final text-only answer is converted at the delivery boundary
-to one native QQ voice message. The model must not emit TTS tags for this path.
-If the local TTS service is unavailable, the same answer falls back to one text
-message. Failed or unavailable transcription stays a normal text/fallback turn;
-it does not create an automatic voice reply.
-
-The TTS endpoint remains the loopback-only OpenAI-compatible gate at
-`127.0.0.1:18102/v1`. The configured Qwen3-TTS speaker is `serena`; the menu
-changes delivery tone/instruction, not the underlying speaker identity. The
-gate releases ComfyUI's models before starting either Qwen service, and only one
-of TTS, ASR, or ComfyUI owns the GPU at a time. The first voice message after a cold start
-can take about two to three minutes while Qwen3-ASR loads; later messages reuse
-the warmed ASR service until TTS or ComfyUI needs the GPU. The default ASR
-limits (`0.75` GPU utilization, `2048` max model length, eager mode) are tuned
-for the host's 8 GiB GPU and can be overridden with
-`QWEN_ASR_GPU_MEMORY_UTILIZATION` and `QWEN_ASR_MAX_MODEL_LEN` in `.env`.
-
-### 群聊小游戏：海龟汤、成语接龙和猜成语
-
-Linux Codex overlay includes a CPU-only `qqbot-game` sidecar and exposes it
-only on `127.0.0.1:18104`. The game engine is the published
-[`nonebot-plugin-ai-turtle-soup` 1.0.9](https://github.com/xxtg666/nonebot-plugin-ai-turtle-soup),
-so session state, yes/no judging, hints, progress, and multiplayer session
-separation come from the reusable upstream package rather than a new ad-hoc
-game implementation. The QQ interactive menu adds `小游戏`, `开始海龟汤`, and
-`结束当前游戏` buttons; text controls are `小游戏`, `开始海龟汤 [主题/提示词]`, `开始成语接龙`,
-`猜成语`, `提示`, `查看进度`, and `放弃`. During a turtle-soup game, @mention
-the bot with a yes/no question. During either text game, send a four-character
-idiom directly; the adapter consumes the message as the next move.
-
-The turtle-soup player-facing payload deliberately contains only the surface
-(`汤面`), never the catalog title. This applies to start and progress replies;
-the title remains an internal field for upstream compatibility and optional theme
-matching only.
-
-The two text-first games use the pinned MIT [`China-idiom`](https://github.com/sfyc23/China-idiom)
-catalog. `成语接龙` starts with a word from the catalog, requires a new four-character
-idiom beginning with the previous word's last character, and accepts `同音` as an
-optional looser mode. `猜成语` gives the whole group one hidden four-character answer,
-allows ten shared guesses, uses `🟩/🟨/⬜` feedback, reveals one position per hint, and
-keeps a small in-memory leaderboard. The rule adapter and its upstream/license notes
-are in [`games/ai-turtle-soup/chat_games.py`](games/ai-turtle-soup/chat_games.py) and
-[`games/ai-turtle-soup/CHAT_GAMES_UPSTREAM.md`](games/ai-turtle-soup/CHAT_GAMES_UPSTREAM.md).
-
-The default mode starts immediately from a 50-puzzle local catalog. The first
-five are adapted public sample puzzles whose source project declares the
-samples [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/legalcode.zh-Hans);
-the next fifteen are original short daily scenarios and the final thirty are
-original suspense/thriller/horror scenarios tagged with all three category
-labels. A theme prompt is parsed into category aliases and catalog-scene
-intersections, so `开始海龟汤 悬疑惊悚恐怖` selects the horror slice and
-`开始海龟汤 恐怖医院` narrows it to hospital scenes. The
-attribution and field conversion are recorded in
-[`games/ai-turtle-soup/UPSTREAM.md`](games/ai-turtle-soup/UPSTREAM.md). LunaMax
-(`gpt-5.6-luna`, `reasoning_effort=max`) is used for each host judgment, so the
-game still has an LLM referee without making startup depend on a long puzzle
-authoring request. If you want a newly generated themed puzzle, set
-`GAME_PUZZLE_SOURCE=ai` in `.env` and restart the Codex overlay. That mode
-performs a bounded DuckDuckGo title/snippet search and asks LunaMax to adapt
-the references; search text is treated as untrusted input and is never sent
-verbatim to QQ. If the AI authoring request reaches its 45-second budget, the
-sidecar falls back to the same public sample pool and labels that response as
-an automatic fallback. The game sidecar has no GPU devices and does not participate in
-the TTS/ASR/ComfyUI GPU lease. Its in-memory games are cleared if the sidecar
-restarts. Local-pool selection is rotated independently for each QQ group (and
-private conversation) and persisted as opaque puzzle keys under
-`runtime/game-state`; the persisted group key is hashed. Within one group, a
-surface is not selected again until the full 50-puzzle catalog has been used.
-If a requested theme has been exhausted while the group still has unseen
-scenarios, the selector chooses an unseen scenario from the full catalog and
-adds a short notice instead of repeating the themed surface. Only after the
-whole catalog is exhausted does a new rotation begin, with an immediate-repeat
-cooldown where the catalog has more than one item. A theme that matches only
-one puzzle can therefore be honored only until that puzzle has been used in
-the current group rotation. Each turtle-soup answer carries a cleaned,
-single-line preview of the current question, shown before the host verdict and
-limited to 80 characters with an ellipsis for longer questions. The preview is
-only an answer-matching aid and is not written to the puzzle-selection state.
-
-## macOS + Docker Desktop
-
-Mac uses only Unix shell entrypoints and the Mac-specific config/Compose file:
-
-```bash
-cd /Users/mentat/qqshitbot
-scripts/mac/check-env.sh
-scripts/mac/start.sh
-scripts/mac/status.sh
-scripts/mac/logs.sh
-scripts/mac/console.sh
-scripts/mac/stop.sh
-```
-
-`scripts/mac/start.sh` builds the small Mac image (applying the read-only DuckDuckGo bundle patch while the image filesystem is writable), copies `openclaw.mac.json` into the ignored runtime directory, seeds the diagnostic filter, validates the official QQ plugin, validates the config, and starts only `openclaw-gateway` plus `context-recovery`. It does not pull or start Ollama, Qwen, NVIDIA/CUDA, video, or image-fusion services. The persistent Mac volumes are named with the `qqshitbot-openclaw-mac_` prefix so they do not collide with the Windows local deployment.
-
-The Mac route is explicit: `sensenova-vision/sensenova-6.7-flash-lite` receives the current image, and the official `deepseek/deepseek-v4-flash` API generates the final text with medium thinking. `scripts/sensenova_probe.py` sends the image to SenseNova and the resulting description to official DeepSeek, printing only redacted status/availability; it does not prove a QQ attachment reached the Gateway.
-
-The Gateway remains token-authenticated. Host publication defaults to `127.0.0.1:${OPENCLAW_GATEWAY_PORT}`. For a trusted LAN-only console, run `scripts/mac/configure-lan-console.sh`; it binds Gateway and console to the detected concrete Mac LAN IPv4, sets `OPS_CONSOLE_AUTH_MODE=none`, and exposes only fixed, redacted read-only metadata. This convenience mode is not allowed on `0.0.0.0`/`::`; do not forward either port to the public Internet. The default `token` mode remains available when stronger console authentication is desired.
-
-The Mac control panel reports macOS CPU, memory, and disk using native host collectors. GPU VRAM and Ollama are explicitly `not_applicable` for the cloud-vision deployment; they are not reported as zero or healthy. Windows browsers may use the Mac LAN address when LAN mode is explicitly enabled, but the browser never receives Docker Socket or arbitrary command access.
-
-For unattended operation, enable Docker Desktop's “Start Docker Desktop when you sign in” setting and keep the Mac connected to AC power. The Mac gateway and recovery services use `restart: unless-stopped`, so Docker restarts recover the containers without starting the Windows Qwen service. The console is a host Python process rather than a container; run `scripts/mac/install-launch-agent.sh` to keep it running after login and after a process failure, or remove it with `scripts/mac/uninstall-launch-agent.sh`. The LaunchAgent uses `--no-browser` and writes only its own process output to `~/Library/Logs/qqshitbot/`.
-
-Closing a Mac notebook lid normally puts macOS and the Docker Desktop Linux VM to sleep; no Compose setting can keep requests processing while the host is asleep. For lid-closed operation use supported clamshell mode (AC power plus an external display/keyboard/pointing device), verify the Mac remains awake, and do not treat `caffeinate` as a substitute for that hardware/power condition. A Mac that must run continuously without a logged-in user or sleep risk should be replaced by an always-on host. See [`docs/MAC_RUNTIME_STABILITY.md`](../../docs/MAC_RUNTIME_STABILITY.md) for the runbook and verification commands.
-
-## Docker Compose commands
-
-```bash
-# Logs
-docker compose logs -f openclaw-gateway
-
-# OpenClaw status and configuration checks
-docker compose run --rm openclaw-cli status
-docker compose run --rm openclaw-cli config validate
-docker compose run --rm openclaw-cli plugins inspect openclaw-qqbot
-docker compose exec qwen-vision ollama list
-
-# Stop
-docker compose down
-
-# Pull the pinned image and restart
-docker compose pull
-docker compose up -d openclaw-gateway context-recovery
-```
-
-On Windows, use Docker Desktop with WSL or Git Bash to run `setup.sh`. The Compose file itself is platform-neutral; the equivalent manual sequence is to create `runtime/config` and `runtime/workspace`, copy `openclaw.json`, `bot-workspace/AGENTS.md` as `runtime/workspace/AGENTS.md`, and `SOUL.md` into them, install the plugin with the `openclaw-cli` service, validate the config, start `qwen-vision`, ensure `qwen2.5vl:7b` is present, and start `openclaw-gateway context-recovery`.
-
-For the local Windows deployment, double-click `scripts/windows/Start-OpenClawQQBot.bat` from the repository or use the desktop shortcut copy. The pure BAT launcher resolves the project root relative to its own location, validates `.env`, installs/validates the QQ plugin, starts the lightweight Qwen image service, and starts the gateway plus recovery sidecar without invoking PowerShell. It skips the optional host-side watcher and proactive review registration.
-
-`scripts/windows/Bind-OpenClawQQBot.bat` is the pure BAT wrapper for an already configured `.env`. It validates that QQ credentials exist and then calls the pure BAT launcher; it does not echo secret input or perform QR credential capture. The legacy PowerShell QR helper remains available only for first-time binding when manual `.env` configuration is not possible. Do not paste AppSecret or model keys into chat, logs, screenshots, or source files.
-
-## Container and GPU management
-
-The normal QQ runtime is split into these services:
-
-- `openclaw-gateway`: QQ WebSocket, session/context handling, model routing, and final Chinese text replies. It does not load the heavy vision models.
-- `context-recovery`: watches gateway logs and resets a stuck or overflowed QQ group session. It is CPU-only and small.
-- `qwen-vision`: private Ollama `Qwen2.5-VL 7B` service for image understanding and OCR. It is GPU-enabled and loads its model on demand.
-- Heavy image/video artifacts are not retained; they are not part of the supported deployment.
-- `qq-diagnostic-filter-init`: one-shot initialization service that seeds the local QQ diagnostics and recovery scripts; it is not a persistent worker and does not use GPU.
-- `openclaw-cli`: an optional `cli` profile for administrative commands; it normally remains stopped and does not use GPU.
-
-Use `nvidia-smi` and `ollama ps` to see whether Qwen is currently loaded on CUDA. Docker's `MEM USAGE` column is system RAM, not VRAM.
-
-To stop even the lightweight image service and keep only the QQ bot and recovery sidecar running:
-
-```powershell
-.\Stop-OpenClawVision.ps1
-```
-
-Stopping the services also writes a `none` media-capability profile into the runtime config. The media routes are removed for that runtime, and old group images/videos are never promoted into a new @mention.
-
-The vision helper only starts the active Qwen image service:
-
-```powershell
-.\Start-OpenClawVision.ps1   # lightweight Qwen image path
-```
-
-The helper updates the runtime capability profile and recreates only the gateway/recovery containers so the model policy stays aligned. No video or heavy image-fusion capability is exposed by the current runtime.
-
-The normal launcher starts the gateway and lightweight Qwen image service:
-
-```bat
-..\..\scripts\windows\Start-OpenClawQQBot.bat
-```
-
-The gateway and recovery sidecar should remain running for QQ replies. Only the Qwen image service is started by the supported launchers.
-
-## Group participation
-
-The configured mode keeps `requireMention: true`; each @ is an independent turn with at most one preceding group message. An explicit QQ quote is the preferred context and carries at most one actual image. A recent image is considered only when the current text clearly points to it; otherwise old media stays out of the model request. The default queue uses same-turn steering with a small cap instead of collecting long bursts. Periodic proactive review is opt-in because it otherwise spends API tokens on full-context scans.
-
-The proactive review is disabled by default because background scans spend API tokens. Set `QQBOT_PROACTIVE_REVIEW_ENABLED=true` together with `QQBOT_HOME_CHANNEL` only when this low-frequency feature is intentional; it then reviews one pending group message every 10 minutes from 08:00 through 01:50 and every 30 minutes from 02:00 through 07:30, using `Asia/Shanghai` time. Direct mentions and replies receive a normal answer unless a workspace safety rule blocks the request. Group sessions are reset after 60 minutes without activity. If a model run reaches an unrecoverable context overflow or stalls in processing, `context-recovery` calls `sessions.reset` for that group session and keeps the technical diagnostic out of QQ. To make every ordinary message an immediate model turn, edit `runtime/config/openclaw.json` and set:
-
-```json
-"requireMention": false
-```
-
-On Windows, rerun the launcher after changing `.env` configuration:
-
-```bat
-..\..\scripts\windows\Start-OpenClawQQBot.bat
-```
-
-The default deployment is open: every QQ user can DM the bot, and any group member who @ mentions the bot is answered. To restrict access again, set `channels.qqbot.dmPolicy`/`groupPolicy` to `allowlist`, add the direct-message user OpenIDs to `allowFrom` and the group member OpenIDs to `groupAllowFrom`, and keep allowlists enabled while the bot is in public groups.
-
-## Windows local deployment
-
-Start the complete local stack with:
-
-```bat
-..\..\scripts\windows\Start-OpenClawQQBot.bat
-```
-
-The launcher reads QQ and model credentials from the ignored `.env` file, uses `runtime/workspace` for the OpenClaw workspace, starts Qwen plus the OpenClaw gateway and context-recovery sidecar, and installs/validates the QQ plugin. It does not write credentials to the repository and does not invoke PowerShell.
-
-Windows bind mounts appear world-writable inside Docker Desktop. The launcher therefore runs `qq-diagnostic-filter-init` first; it copies the local hook into a named volume with mode `0644`, so OpenClaw's plugin trust check can load it without weakening the security policy.
-
-The Qwen service uses the RTX GPU and downloads public weights into a named Docker volume on first use. Qwen is private to the Compose network and is configured for one loaded model, one parallel request, and a bounded three-minute keep-alive so consecutive image replies do not reload the model. The archived image/video code has no active endpoint, build target, or route; re-enabling it requires a new dependency and license review documented in [`docs/DEPENDENCY_LICENSE_AUDIT.md`](../docs/DEPENDENCY_LICENSE_AUDIT.md).
-
-## Verification boundary
-
-The repository tests validate Compose shape, configuration, launcher wiring, environment migration, media/context behavior, and security boundaries. They do not prove that the current Docker Desktop has a working NVIDIA runtime, that a particular model fits the available VRAM, or that an actual QQ attachment event reaches the gateway. Use `python ../../scripts/openclaw_diagnostic.py --mode preflight --pretty` and `--mode health --pretty` for redacted local reports; GPU and model-device fields remain unknown when Docker is stopped. Real QQ delivery still requires external verification.
-
-## Updating the persona
-
-`setup.sh` copies `bot-workspace/AGENTS.md` and `SOUL.md` only when the runtime workspace does not already contain them, so local edits are preserved. Copy the Bot source versions again manually when you want to adopt later persona changes; the root `AGENTS.md` is never a runtime source.
+Use `down` without `-v` so named volumes and the ignored runtime remain
+recoverable. For macOS use `-f docker-compose.mac.yml`; for the Linux overlay
+include `docker-compose.codex.yml`. Do not delete volumes or runtime files as
+a routine diagnostic step.

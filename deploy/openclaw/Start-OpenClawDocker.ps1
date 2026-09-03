@@ -1,8 +1,5 @@
 [CmdletBinding()]
-param(
-    [switch]$NoWatcher,
-    [switch]$NoVision
-)
+param()
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -73,7 +70,7 @@ function Set-RuntimeEnvironment {
         throw "OpenClaw environment file was not found: $envFile"
     }
 
-    foreach ($target in @('QQBOT_APP_ID', 'QQBOT_CLIENT_SECRET', 'SENSENOVA_API_KEY', 'DEEPSEEK_API_KEY')) {
+    foreach ($target in @('QQBOT_APP_ID', 'QQBOT_CLIENT_SECRET', 'CODEX_PROXY_BASE_URL', 'CODEX_PROXY_TOKEN')) {
         $value = Get-DotEnvValue -Path $envFile -Name $target
         if ([string]::IsNullOrWhiteSpace($value)) {
             throw "Required OpenClaw value is missing: $target"
@@ -138,51 +135,6 @@ function Move-LegacyQQBotProject {
         }
         Move-Item -LiteralPath $project.FullName -Destination $destination
         Write-Host "Quarantined legacy @openclaw/qqbot project under $destination."
-    }
-}
-
-function Test-DockerImageAvailable {
-    param([Parameter(Mandatory = $true)][string]$Image)
-
-    $previousErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        & docker image inspect $Image *> $null
-        return ($LASTEXITCODE -eq 0)
-    } finally {
-        $ErrorActionPreference = $previousErrorAction
-    }
-}
-
-function Ensure-QwenService {
-    if ($NoVision) {
-        return
-    }
-    Invoke-Compose -Arguments @('up', '-d', 'qwen-vision')
-
-    $ready = $false
-    $modelList = ''
-    for ($attempt = 0; $attempt -lt 30; $attempt++) {
-        $previousErrorAction = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try {
-            $modelList = (& docker compose @composeFiles exec -T qwen-vision ollama list 2>$null | Out-String)
-            $qwenExitCode = $LASTEXITCODE
-        } finally {
-            $ErrorActionPreference = $previousErrorAction
-        }
-        if ($qwenExitCode -eq 0) {
-            $ready = $true
-            break
-        }
-        Start-Sleep -Seconds 2
-    }
-    if (-not $ready) {
-        throw 'The OpenClaw qwen-vision service did not become ready.'
-    }
-
-    if ($modelList -notmatch '(?m)^qwen2\.5vl:7b\s') {
-        Invoke-Compose -Arguments @('exec', '-T', 'qwen-vision', 'ollama', 'pull', 'qwen2.5vl:7b')
     }
 }
 
@@ -351,22 +303,7 @@ Ensure-RuntimeFiles
 Push-Location $scriptDir
 try {
     Invoke-Compose -Arguments @('config', '--quiet')
-    $pullServices = @('openclaw-gateway', 'openclaw-cli')
-    if (-not $NoVision) {
-        $qwenImage = $env:QWEN_IMAGE
-        if ([string]::IsNullOrWhiteSpace($qwenImage)) {
-            $qwenImage = Get-DotEnvValue -Path $envFile -Name 'QWEN_IMAGE'
-        }
-        if ([string]::IsNullOrWhiteSpace($qwenImage)) {
-            $qwenImage = 'ollama/ollama:0.32.5'
-        }
-        if (Test-DockerImageAvailable -Image $qwenImage) {
-            Write-Host "Using existing local Qwen image: $qwenImage"
-        } else {
-            $pullServices += 'qwen-vision'
-        }
-    }
-    Invoke-Compose -Arguments (@('pull') + $pullServices)
+    Invoke-Compose -Arguments @('pull', 'openclaw-gateway', 'openclaw-cli')
     Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'qq-diagnostic-filter-init')
     Move-LegacyQQBotProject
 
@@ -381,12 +318,6 @@ try {
         Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'plugins', 'install', '@openclaw/duckduckgo-plugin@2026.8.2', '--force', '--pin', '--accept-capabilities')
     }
     Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'config', 'validate')
-    $mediaMode = if ($NoVision) { 'none' } else { 'image' }
-    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'Set-OpenClawMediaCapabilities.ps1') -Mode $mediaMode
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to set OpenClaw media capabilities with exit code $LASTEXITCODE."
-    }
-    Ensure-QwenService
 
     $portInUse = Get-NetTCPConnection -LocalPort ([int]$env:OPENCLAW_GATEWAY_PORT) -State Listen -ErrorAction SilentlyContinue
     if ($portInUse) {
@@ -399,15 +330,4 @@ try {
     Pop-Location
 }
 
-if (-not $NoWatcher) {
-    $watcher = Join-Path $scriptDir 'Watch-OpenClawModel.ps1'
-    Start-Process -WindowStyle Hidden -FilePath 'powershell.exe' -ArgumentList @(
-        '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $watcher
-    ) | Out-Null
-}
-
-if ($NoVision) {
-    Write-Host 'OpenClaw Docker gateway started; image understanding is disabled with -NoVision.'
-} else {
-    Write-Host 'OpenClaw Docker gateway started; Qwen image understanding is enabled.'
-}
+Write-Host 'OpenClaw Docker gateway started; text and image understanding use the Codex reverse proxy.'

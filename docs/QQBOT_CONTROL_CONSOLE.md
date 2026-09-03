@@ -49,15 +49,15 @@ tests/ops_console/  控制台单元和 HTTP 边界测试
 
 ## 页面与 API
 
-页面包含 Dashboard、Runtime / Resources、QQ Activity、Sessions / Context、Logs / Diagnostics 五个区域。Phase 1 的 Operations 只提供刷新、打开固定的 OpenClaw Control UI 地址和查看三项有效服务，不提供任意命令、任意路径、任意 URL、Docker socket、清理缓存或高风险重启。
+页面包含 Dashboard、Runtime / Resources、QQ Activity、Sessions / Context、Logs / Diagnostics 五个区域。Phase 1 的 Operations 只提供刷新、打开固定的 OpenClaw Control UI 地址和查看有效服务清单，不提供任意命令、任意路径、任意 URL、Docker socket、清理缓存或高风险重启。
 
-Mac 模式的固定服务只有 `openclaw-gateway` 与 `context-recovery`；GPU VRAM 和 Ollama 显示为不适用，视觉模式显示 SenseNova 6.7 Flash-Lite。Windows 模式继续采集 Qwen/Ollama 与 NVIDIA 状态。
+所有平台的核心固定服务都是 Docker 中的 `openclaw-gateway` 与 `context-recovery`，另有一次性诊断初始化服务；核心文字/图片路由统一为 `codex-proxy/gpt-5.6-luna`。核心 GPU/VRAM 显示为不适用；Linux overlay 的可选语音/生成 sidecar 若存在则单独采集，不与核心路由混淆。
 
 ### 界面主题与语言
 
 控制台默认使用深色主题，顶部的“浅色模式”按钮可以切换到浅色主题；切换结果只保存在当前浏览器的 `localStorage`（键名为 `qqbot-ops-theme`），不会写入后端、Compose 或 OpenClaw 配置。重新打开页面会恢复上次选择，清除浏览器站点数据后恢复深色默认。
 
-界面采用中文作为主语言，状态、日志等级、可信度、数据来源、资源字段和证据边界均已中文化。OpenClaw、Docker、Ollama、Qwen、WebSocket、服务名、模型名、`healthz`、API 路径和 `observedAt` / `source` / `confidence` 等诊断标识保留原文，避免影响定位和与官方文档对照。
+界面采用中文作为主语言，状态、日志等级、可信度、数据来源、资源字段和证据边界均已中文化。OpenClaw、Docker、Codex、WebSocket、服务名、模型名、`healthz`、API 路径和 `observedAt` / `source` / `confidence` 等诊断标识保留原文，避免影响定位和与官方文档对照。
 
 API 只有以下固定路由：
 
@@ -66,26 +66,26 @@ API 只有以下固定路由：
 | GET | `/api/health` | 控制台自身是否可访问 |
 | GET | `/api/snapshot` | 当前 Dashboard、Runtime、Activity、Sessions、Logs 和 Operations 快照 |
 | GET | `/api/diagnostics` | 同一份已脱敏快照，便于复制诊断摘要 |
-| GET | `/api/operations/services` | 三项有效服务和只读操作清单 |
+| GET | `/api/operations/services` | 有效服务和只读操作清单 |
 | POST | `/api/refresh` | 不接受请求体，强制执行一次采集 |
 
 任何状态值都尽量带有：
 
 - `observedAt`：本次采集时间；
-- `source`：Docker Compose、OpenClaw `/healthz`、Ollama、`nvidia-smi`、固定日志尾部或本机 API；
+- `source`：Docker Compose、OpenClaw `/healthz`、Codex 反代配置/探针、`nvidia-smi`、固定日志尾部或本机 API；
 - `confidence`：`direct`、`inferred` 或 `not_collected`。
 
-Windows GPU 采集只报告 `nvidia-smi` 的 VRAM、利用率和温度；Docker `MEM USAGE` 单独作为系统 RAM，绝不转换成显存。Mac 云视觉模式明确返回 `not_applicable`，不会显示为 0 或伪造正常 GPU。
+可选 GPU 辅助服务若被启用，只报告 `nvidia-smi` 的 VRAM、利用率和温度；Docker `MEM USAGE` 单独作为系统 RAM，绝不转换成显存。核心 Codex 文字/图片路由不需要本地 GPU，核心 GPU 字段明确返回 `not_applicable`，不会显示为 0 或伪造正常 GPU。
 
 ## 数据和隐私边界
 
 控制台不会解析或返回 `deploy/openclaw/.env` 内容，也不会把认证头、API key、Gateway token、QQ secret、完整群号、用户 OpenID、私聊正文、图片或原始日志包送到前端。日志只读取固定服务的最多 80 行尾部，经过敏感字段、长标识、长数字、URL 查询参数和 payload-like 内容过滤后才进入 API；运行态历史最多保留 720 个采样点，默认采样缓存约 3 秒，页面轮询为 8 秒。
 
-QQ Activity 现在会从 Docker 日志尾部提取不含正文的连接、入站、模型请求、回复发送和上下文恢复事件，统一标记为 `inferred`；页面只显示事件类型、阶段、服务和时间，不保存消息正文、群号、OpenID 或完整标识。状态 SQLite 中的入站/发送队列表会直读当前队列条数；会话目录只读取最后活动时间、模型名和最近一次模型输入 Token，并以哈希会话标识展示，页面最多显示最近 24 条。`deploy/openclaw/openclaw.json` 中的主备模型、上下文上限、历史条数、队列模式、汇聚等待、队列上限、会话空闲重置和压缩保留策略会以 `direct` 配置证据显示；如果模型路由 watcher 不存在，则只显示配置值，不冒充实时可用性探测。最近一次模型输入 Token 不等于当前会话占用，QQ WebSocket 和回复发送若从日志模式推断，也不能证明 QQ 外部消息最终送达。
+QQ Activity 现在会从 Docker 日志尾部提取不含正文的连接、入站、模型请求、回复发送和上下文恢复事件，统一标记为 `inferred`；页面只显示事件类型、阶段、服务和时间，不保存消息正文、群号、OpenID 或完整标识。状态 SQLite 中的入站/发送队列表会直读当前队列条数；会话目录只读取最后活动时间、模型名和最近一次模型输入 Token，并以哈希会话标识展示，页面最多显示最近 24 条。`deploy/openclaw/openclaw.json` 中的主备模型、上下文上限、历史条数、队列模式、汇聚等待、队列上限、会话空闲重置和压缩保留策略会以 `direct` 配置证据显示；Codex 反代请求只有在执行受控探针或有明确运行日志时才增加对应证据，不冒充实时可用性探测。最近一次模型输入 Token 不等于当前会话占用，QQ WebSocket 和回复发送若从日志模式推断，也不能证明 QQ 外部消息最终送达。
 
 ## 证据层级
 
-容器运行、容器健康检查、端口监听、OpenClaw `/healthz`、本地 Qwen/Ollama 模型可用、QQ WebSocket 日志状态、QQ 真实消息收发是不同证据层级。控制台只呈现本机可观察结果，页面不会把构建成功、容器运行或 healthz 通过写成 QQ 外部收发已验证。
+容器运行、容器健康检查、端口监听、OpenClaw `/healthz`、Codex 反代请求成功、可选辅助服务可用、QQ WebSocket 日志状态、QQ 真实消息收发是不同证据层级。控制台只呈现本机可观察结果，页面不会把构建成功、容器运行、healthz 或反代探针通过写成 QQ 外部收发已验证。
 
 ## 当前未实现
 

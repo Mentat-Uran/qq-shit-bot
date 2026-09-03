@@ -5,10 +5,10 @@
 ## 项目现状
 
 - 本仓库运行形态是 OpenClaw `2026.8.2`、官方 `@tencent-connect/openclaw-qqbot` `2.0.3` 插件和 Docker Compose；两者分别跟随各自的稳定版本线，部署入口位于 `deploy/openclaw/`。
-- Windows 使用默认 Compose 与本地 Qwen2.5-VL 7B 图像路径；macOS 使用 `docker-compose.mac.yml`，SenseNova 负责视觉，官方 DeepSeek V4 Flash 负责文字，默认思考级别为 `medium`。
+- 无论 Windows、macOS、Linux、WSL 还是硬件型号，正式 Bot 都使用 Docker Compose；文字和图片理解统一调用 `codex-proxy/gpt-5.6-luna`。Docker Desktop 默认通过 `host.docker.internal` 访问 Codex 反代，Linux host-network overlay 可使用 `127.0.0.1:18317`；认证只从被忽略的 `.env` 中的 `CODEX_PROXY_TOKEN` 读取。
 - Mage-VL 视频桥和 NVIDIA LocateAnything-3B 图像融合路径已移除；不要重新接入已经退休的模型、镜像或 Compose 文件。
 - Windows 正式入口是 `scripts/windows/Start-OpenClawQQBot.bat`；macOS 正式入口是 `scripts/mac/start.sh`、`stop.sh`、`status.sh`、`logs.sh` 和 `check-env.sh`。
-- 当前 Linux Codex overlay 使用有上限的 12 条群历史候选上下文、单次 @ 独立处理、steer 队列小上限、工具结果裁剪和 compaction；模型必须先判断历史与当前消息的关系，不能因为消息在窗口内就强行带入，也不能用无限扩大历史或提示词替代相关性判断。
+- 默认 Docker 路径使用单次 @ 独立处理和小容量 steer 队列；Linux Codex overlay 额外使用有上限的 12 条群历史候选上下文、工具结果裁剪和 compaction。模型必须先判断历史与当前消息的关系，不能因为消息在窗口内就强行带入，也不能用无限扩大历史或提示词替代相关性判断。
 - 项目不启用软件强制合盖运行；不要新增 Lidless、`pmset disablesleep` 或其他绕过 macOS 睡眠策略的常驻控制。
 - 本机 health、Compose 状态、模型探针和 CI 只证明各自范围内的证据；不能把它们写成真实 QQ 收发、第三方额度、生产可用性或局域网可达性的证明。
 
@@ -31,7 +31,7 @@
 
 ## 变更检查清单
 
-- 修改模型路由时同时检查 `openclaw.json`、`openclaw.mac.json`、`.env.example`、启动器、探针和相关测试，明确区分视觉 provider 与文字 provider。
+- 修改模型路由时同时检查 `openclaw.json`、`openclaw.mac.json`、`openclaw.codex.json`、`.env.example`、三平台 Docker 启动器、Codex 探针和相关测试；文字与图片必须继续使用同一个 Codex provider，不得重新引入 SenseNova、官方 DeepSeek 或本地 Qwen 视觉路由。
 - 修改群上下文时检查 `historyLimit`、`contextVisibility`、`messages.queue`、`messages.inbound`、会话重置、compaction、媒体上限和主动巡检任务，避免一处收紧、另一处重新注入旧历史。
 - 修改运行时规则或复制入口时检查 Unix、PowerShell、BAT、macOS 四条路径，以及 `deploy/openclaw/bot-workspace/AGENTS.md` 与 `SOUL.md` 的来源关系。
 - 修改 QQ bundle patch 时必须验证官方插件 fixture 的首次应用、重复应用、升级旧 helper 和 `node --check`；图片禁用时不得让引用图片绕过能力门控。
