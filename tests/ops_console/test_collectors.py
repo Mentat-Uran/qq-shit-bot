@@ -1,6 +1,5 @@
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ops_console.collectors import CommandResult, DockerCollector, ModelRouteCollector, RuntimeStateCollector, SnapshotBuilder, parse_compose_rows, parse_docker_stats, parse_runtime_events
@@ -23,26 +22,21 @@ class FakeRunner:
             rows = [
                 {"Service": "openclaw-gateway", "Name": "qq-shit-bot-openclaw-gateway-1", "Image": "openclaw:2026.8.2", "State": "running", "Health": "healthy"},
                 {"Service": "context-recovery", "Name": "qq-shit-bot-context-recovery-1", "Image": "openclaw:2026.8.2", "State": "running", "Health": ""},
-                {"Service": "qwen-vision", "Name": "qq-shit-bot-qwen-vision-1", "Image": "ollama:0.32.5", "State": "running", "Health": "healthy"},
             ]
             return CommandResult(0, "\n".join(json.dumps(row) for row in rows))
         if "docker stats" in joined:
             return CommandResult(0, '\n'.join([
                 json.dumps({"Name": "qq-shit-bot-openclaw-gateway-1", "CPUPerc": "2.1%", "MemUsage": "128MiB / 1GiB", "MemPerc": "12.5%"}),
-                json.dumps({"Name": "qq-shit-bot-qwen-vision-1", "CPUPerc": "4.2%", "MemUsage": "512MiB / 6GiB", "MemPerc": "8.3%"}),
+                json.dumps({"Name": "qq-shit-bot-context-recovery-1", "CPUPerc": "0.2%", "MemUsage": "64MiB / 1GiB", "MemPerc": "6.2%"}),
             ]))
-        if "nvidia-smi" in joined:
-            return CommandResult(0, "12, 54, 2048, 8192, NVIDIA Test GPU")
-        if "ollama ps" in joined:
-            return CommandResult(0, "NAME ID SIZE PROCESSOR UNTIL\nqwen2.5vl:7b abc 5.0GB 100% GPU 2 minutes")
         if "compose port" in joined:
             return CommandResult(0, "127.0.0.1:18789\n")
         if " logs " in f" {joined} ":
             return CommandResult(0, "\n".join([
                 "openclaw-gateway-1 | 2026-08-10T10:00:00Z WebSocket connected",
                 "openclaw-gateway-1 | 2026-08-10T10:00:01Z Processing message from sender {\"type\":\"group\"}",
-                "openclaw-gateway-1 | 2026-08-10T10:00:02Z [provider-transport-fetch] [model-fetch] start provider=local model=deepseek-v4-flash",
-                "openclaw-gateway-1 | 2026-08-10T10:00:03Z [provider-transport-fetch] [model-fetch] response provider=local model=deepseek-v4-flash status=200",
+                "openclaw-gateway-1 | 2026-08-10T10:00:02Z [provider-transport-fetch] [model-fetch] start provider=codex-proxy model=gpt-5.6-luna",
+                "openclaw-gateway-1 | 2026-08-10T10:00:03Z [provider-transport-fetch] [model-fetch] response provider=codex-proxy model=gpt-5.6-luna status=200",
                 "openclaw-gateway-1 | 2026-08-10T10:00:04Z Sent markdown chunk (1/1 chars) (group)",
                 "openclaw-gateway-1 | 2026-08-10T10:00:05Z gateway request timed out",
                 "openclaw-gateway-1 | authorization: Bearer example-redacted-value",
@@ -62,9 +56,9 @@ class QueueAdapterRunner(FakeRunner):
 
 
 def test_compose_rows_are_limited_to_supported_services():
-    rows = parse_compose_rows(json.dumps({"Service": "other", "State": "running"}) + "\n" + json.dumps({"Service": "qwen-vision", "State": "running"}))
+    rows = parse_compose_rows(json.dumps({"Service": "other", "State": "running"}) + "\n" + json.dumps({"Service": "openclaw-gateway", "State": "running"}))
 
-    assert [row["service"] for row in rows] == ["qwen-vision"]
+    assert [row["service"] for row in rows] == ["openclaw-gateway"]
 
 
 def test_docker_stats_are_system_ram_not_vram():
@@ -81,12 +75,12 @@ def test_docker_stats_are_scoped_to_running_compose_containers():
 
     collector._stats([
         {"name": "qq-shit-bot-openclaw-gateway-1", "state": "running"},
-        {"name": "qq-shit-bot-qwen-vision-1", "state": "running"},
-        {"name": "qq-shit-bot-context-recovery-1", "state": "exited"},
+        {"name": "qq-shit-bot-context-recovery-1", "state": "running"},
+        {"name": "unrelated-container", "state": "running"},
     ])
 
     stats_call = next(args for args, _, _ in runner.calls if args[:2] == ["docker", "stats"])
-    assert stats_call[-2:] == ["qq-shit-bot-openclaw-gateway-1", "qq-shit-bot-qwen-vision-1"]
+    assert stats_call[-3:] == ["qq-shit-bot-openclaw-gateway-1", "qq-shit-bot-context-recovery-1", "unrelated-container"]
 
 
 def test_queue_state_uses_fixed_scope_container_adapter():
@@ -96,15 +90,15 @@ def test_queue_state_uses_fixed_scope_container_adapter():
     assert runtime["queueState"]["value"] == 2
 
 
-def test_healthy_snapshot_separates_gpu_vram_and_ollama_model():
+def test_healthy_snapshot_marks_core_gpu_and_proxy_request_boundaries():
     runner = FakeRunner()
     runtime = DockerCollector(ROOT, runner).collect()
 
     assert runtime["status"]["status"] == "available"
-    assert runtime["gpu"]["status"] == "available"
-    assert runtime["gpu"]["memoryKind"] == "gpu_vram"
-    assert runtime["gpu"]["vramUsedBytes"] == 2048 * 1024 * 1024
-    assert runtime["ollama"]["currentModel"] == "qwen2.5vl:7b"
+    assert runtime["gpu"]["status"] == "not_applicable"
+    assert runtime["gpu"]["memoryKind"] == "not_applicable"
+    assert runtime["codexProxy"]["status"] == "unknown"
+    assert runtime["codexProxy"]["model"] == "gpt-5.6-luna"
     assert runtime["systemRam"]["memoryKind"] == "system_ram"
     assert {event["type"] for event in runtime["events"]} >= {"qq_connection", "qq_inbound", "model_request", "qq_reply"}
     assert all("example-redacted" not in record["summary"] for record in runtime["logRecords"])
@@ -149,7 +143,7 @@ def test_runtime_state_reads_queue_and_recent_input_tokens_without_payloads(tmp_
     session_dir.mkdir()
     (session_dir / "052446b3-6933-42d1-9dba-0bdbd2a56a63.jsonl").write_text("\n".join([
         json.dumps({"type": "session", "timestamp": "2026-08-10T18:00:00Z"}),
-        json.dumps({"type": "message", "timestamp": "2026-08-10T18:00:01Z", "message": {"role": "assistant", "model": "deepseek-chat", "usage": {"input": 1234}}}),
+        json.dumps({"type": "message", "timestamp": "2026-08-10T18:00:01Z", "message": {"role": "assistant", "model": "gpt-5.6-luna", "usage": {"input": 1234}}}),
     ]), encoding="utf-8")
 
     state = RuntimeStateCollector(state_db, session_dir).collect(idle_minutes=120)
@@ -171,40 +165,29 @@ def test_runtime_state_accepts_only_safe_container_queue_metadata(tmp_path):
 
 
 def test_model_route_falls_back_to_safe_openclaw_configuration(tmp_path):
-    watcher = tmp_path / "missing-model-route-state.json"
     config = tmp_path / "openclaw.json"
     config.write_text(json.dumps({
-        "agents": {"defaults": {"model": {"primary": "sensenova-token/deepseek-v4-flash", "fallbacks": ["deepseek/deepseek-chat"]}}},
-        "models": {"providers": {"deepseek": {"apiKey": "must-not-appear"}}},
+        "agents": {"defaults": {"model": {"primary": "codex-proxy/gpt-5.6-luna", "fallbacks": []}}},
+        "models": {"providers": {"legacy-provider": {"apiKey": "must-not-appear"}}},
     }), encoding="utf-8")
 
-    result = ModelRouteCollector(watcher, config).collect()
+    result = ModelRouteCollector(config).collect()
 
     assert result["status"] == "available"
     assert result["source"] == "deploy/openclaw/openclaw.json"
     assert result["confidence"] == "direct"
-    assert result["primary"] == "sensenova-token/deepseek-v4-flash"
-    assert result["fallback"] == "deepseek/deepseek-chat"
+    assert result["primary"] == "codex-proxy/gpt-5.6-luna"
+    assert result["fallback"] == "未配置"
     assert result["lastProbeAt"] is None
     assert "must-not-appear" not in json.dumps(result, ensure_ascii=False)
 
 
-def test_model_route_ignores_stale_watcher_state(tmp_path):
+def test_model_route_uses_configuration_without_runtime_override(tmp_path):
     config = tmp_path / "openclaw.json"
     config.write_text(json.dumps({
         "agents": {"defaults": {"model": {"primary": "configured-primary", "fallbacks": ["configured-fallback"]}}},
     }), encoding="utf-8")
-    watcher = tmp_path / "model-route-state.json"
-    watcher.write_text(json.dumps({
-        "primary": "stale-primary",
-        "fallback": "stale-fallback",
-        "route": "primary-configured",
-        "primaryAvailable": True,
-        "statusCode": 200,
-        "lastProbeAt": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
-    }), encoding="utf-8")
-
-    result = ModelRouteCollector(watcher, config).collect()
+    result = ModelRouteCollector(config).collect()
 
     assert result["source"] == "deploy/openclaw/openclaw.json"
     assert result["primary"] == "configured-primary"
@@ -229,8 +212,8 @@ def test_docker_failure_is_unknown_or_degraded_and_never_zero():
 
     assert snapshot["dashboard"]["status"] == "degraded"
     assert snapshot["runtime"]["docker"]["status"] == "unavailable"
-    assert snapshot["runtime"]["gpu"]["status"] == "unknown"
-    assert snapshot["runtime"]["gpu"].get("vramUsedBytes") is None
+    assert snapshot["runtime"]["gpu"]["status"] == "not_applicable"
+    assert snapshot["runtime"]["codexProxy"]["status"] == "unknown"
     assert snapshot["secretsRedacted"] is True
     assert ".env" not in encoded
     assert "private-token" not in encoded

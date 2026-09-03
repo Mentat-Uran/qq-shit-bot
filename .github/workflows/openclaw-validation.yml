@@ -80,10 +80,6 @@ jobs:
           $files = @(
             'deploy/openclaw/Test-OpenClawEnvironment.ps1',
             'deploy/openclaw/Start-OpenClawDocker.ps1',
-            'deploy/openclaw/Start-OpenClawVision.ps1',
-            'deploy/openclaw/Stop-OpenClawVision.ps1',
-            'deploy/openclaw/Set-OpenClawMediaCapabilities.ps1',
-            'deploy/openclaw/Watch-OpenClawModel.ps1',
             'scripts/windows/Bind-OpenClawQQBot.ps1',
             'scripts/windows/Start-QQBotConsole.ps1'
           )
@@ -96,7 +92,9 @@ jobs:
           $bat = Get-Content -Raw scripts/windows/Start-OpenClawQQBot.bat
           if ($bat -match '(?i)powershell') { throw 'Windows BAT launcher must stay PowerShell-free.' }
           if ($bat -notmatch '(?i)docker compose') { throw 'Windows BAT launcher is not wired to Docker Compose.' }
-          if ($bat -notmatch 'qwen2\.5vl:7b') { throw 'Windows BAT launcher does not prepare the pinned Qwen model.' }
+          if ($bat -notmatch 'CODEX_PROXY_BASE_URL') { throw 'Windows BAT launcher does not require the Codex proxy URL.' }
+          if ($bat -notmatch 'CODEX_PROXY_TOKEN') { throw 'Windows BAT launcher does not require the Codex proxy token.' }
+          if ($bat -match '(?i)qwen-vision|ollama|sensenova|deepseek') { throw 'Windows BAT launcher contains a retired model route.' }
 
   shell-validation:
     name: Unix launcher and diagnostics

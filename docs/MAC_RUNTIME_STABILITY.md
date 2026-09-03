@@ -33,9 +33,9 @@ MacBook 合盖后通常进入睡眠，Docker Desktop 的 Linux VM、Gateway、co
 
 不要通过软件绕过合盖睡眠。需要合盖运行时，只使用 macOS 支持的 clamshell 模式：连接 AC 电源、外接显示器和外接输入设备，并确认 Mac 仍保持唤醒。不要把 `caffeinate` 当成合盖运行保证；持续高负载应使用常开主机。
 
-Docker Desktop 中启用 “Start Docker Desktop when you sign in”，并为项目保留足够的 Docker Desktop 磁盘空间。首次镜像下载、运行时状态、Gateway 日志和未来升级都占用磁盘；SenseNova 云视觉不会在 Mac 上下载 Qwen/Ollama 模型权重。建议至少保留 8 GB 可用磁盘用于镜像与日志，实际需求以 Docker Desktop 的镜像大小和日志增长为准。
+Docker Desktop 中启用 “Start Docker Desktop when you sign in”，并为项目保留足够的 Docker Desktop 磁盘空间。首次镜像下载、运行时状态、Gateway 日志和未来升级都占用磁盘；Mac 核心文字/图片请求通过 Codex 反代，不下载本地视觉模型权重。建议至少保留 8 GB 可用磁盘用于镜像与日志，实际需求以 Docker Desktop 的镜像大小和日志增长为准。
 
-资源和网络建议：Docker Desktop 至少分配 4 GB 内存，生产式长期运行更建议 8 GB；Mac 本机应保留至少 8 GB 可用磁盘。Gateway 需要稳定的出站 HTTPS/WSS 网络以连接 QQ 平台、`token.sensenova.cn` 和 `api.deepseek.com`；局域网面板只需要同一网段可达，不需要公网端口转发。Apple Silicon 已在当前 Mac 上验证；Intel Mac 没有本地 GPU/Qwen 依赖，但本次未做 Intel 实机验证，部署前应确认 Docker Desktop 能拉取该固定 OpenClaw 镜像的 `amd64` 变体。
+资源和网络建议：Docker Desktop 至少分配 4 GB 内存，生产式长期运行更建议 8 GB；Mac 本机应保留至少 8 GB 可用磁盘。Gateway 需要稳定的出站 HTTPS/WSS 网络以连接 QQ 平台和 `CODEX_PROXY_BASE_URL` 指向的反代；局域网面板只需要同一网段可达，不需要公网端口转发。Apple Silicon 已在当前 Mac 上验证；Intel Mac 的 Docker Desktop 镜像架构本次未做实机验证，部署前应确认固定 OpenClaw 镜像提供可用的 `amd64` 变体。
 
 ## 故障定位
 

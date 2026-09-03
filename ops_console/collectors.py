@@ -28,8 +28,8 @@ from .models import evidence, format_host_for_url, unknown, utc_now
 from .redaction import public_error
 
 
-SERVICES = ("openclaw-gateway", "context-recovery", "qwen-vision")
-MAC_SERVICES = ("openclaw-gateway", "context-recovery")
+SERVICES = ("openclaw-gateway", "context-recovery")
+MAC_SERVICES = SERVICES
 DEFAULT_GATEWAY_PORT = 18789
 MAX_LOG_RECORDS = 80
 MAX_HISTORY_SAMPLES = 720
@@ -39,7 +39,6 @@ LOG_SOURCE = "docker compose logs --tail 80"
 STATE_DB_PATH = "deploy/openclaw/runtime/config/state/openclaw.sqlite"
 SESSION_DIR = "deploy/openclaw/runtime/config/agents/main/sessions"
 MAX_SESSION_ROWS = 24
-MODEL_ROUTE_MAX_AGE_SECONDS = 15 * 60
 QUEUE_TABLES = ("channel_ingress_events", "delivery_queue_entries")
 ACTIVE_QUEUE_STATUSES = {"queued", "pending", "processing", "claimed", "sending", "in_flight", "retrying", "waiting", "ready"}
 TERMINAL_QUEUE_STATUSES = {"completed", "done", "sent", "failed", "cancelled", "expired", "dropped"}
@@ -184,11 +183,6 @@ def parse_gpu_csv(output: str) -> dict[str, Any] | None:
             "name": parts[4][:80],
         }
     return None
-
-
-def parse_ollama_model(output: str) -> str | None:
-    match = re.search(r"\b(qwen2\.5vl:7b)\b", output, re.IGNORECASE)
-    return match.group(1) if match else None
 
 
 def service_row(row: dict[str, Any] | None, service: str, stats: dict[str, dict[str, Any]], observed_at: str) -> dict[str, Any]:
@@ -652,8 +646,7 @@ class HostCollector:
 
 
 class ModelRouteCollector:
-    def __init__(self, path: Path, config_path: Path, config_source: str = CONFIG_PATH):
-        self.path = path
+    def __init__(self, config_path: Path, config_source: str = CONFIG_PATH):
         self.config_path = config_path
         self.config_source = config_source
 
@@ -682,36 +675,14 @@ class ModelRouteCollector:
             primaryAvailable=None,
             statusCode=None,
             lastProbeAt=None,
-            detail="配置中的主备模型；当前可用性仍需模型请求或 watcher 证据",
+            detail="配置中的统一 Codex 反代路由；成功请求仍需探针或真实 QQ 交互证据",
         )
 
     def collect(self) -> dict[str, Any]:
         observed_at = utc_now()
-        try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return self._configured_route(observed_at)
-        if not isinstance(payload, dict):
-            return self._configured_route(observed_at)
-        safe = {
-            "primary": str(payload.get("primary") or "unknown")[:120],
-            "fallback": str(payload.get("fallback") or "configured-fallback")[:120],
-            "route": str(payload.get("route") or "unknown")[:60],
-            "primaryAvailable": payload.get("primaryAvailable") if isinstance(payload.get("primaryAvailable"), bool) else None,
-            "statusCode": payload.get("statusCode") if isinstance(payload.get("statusCode"), int) else None,
-            "lastProbeAt": str(payload.get("lastProbeAt") or "unknown")[:40],
-        }
-        last_probe = payload.get("lastProbeAt")
-        try:
-            probe_at = datetime.fromisoformat(str(last_probe).replace("Z", "+00:00"))
-            if probe_at.tzinfo is None:
-                probe_at = probe_at.replace(tzinfo=timezone.utc)
-            age_seconds = (datetime.now(timezone.utc) - probe_at.astimezone(timezone.utc)).total_seconds()
-        except (TypeError, ValueError, OverflowError):
-            age_seconds = float("inf")
-        if age_seconds < 0 or age_seconds > MODEL_ROUTE_MAX_AGE_SECONDS:
-            return self._configured_route(observed_at)
-        return evidence("available", "deploy/openclaw/runtime/model-route-state.json", "direct", observed_at, **safe)
+        # The route is configuration-owned, so a stale legacy runtime state
+        # file must never override the checked-in Codex configuration.
+        return self._configured_route(observed_at)
 
 
 class DockerCollector:
@@ -798,50 +769,25 @@ class DockerCollector:
                     return port
         return DEFAULT_GATEWAY_PORT
 
-    def _gpu(self, qwen_running: bool) -> dict[str, Any]:
-        if self.deployment == "mac":
-            return evidence(
-                "not_applicable",
-                "macOS SenseNova cloud vision",
-                "direct",
-                utc_now(),
-                detail="Mac Compose 不包含本地 GPU 视觉服务；图片识别走 SenseNova 6.7 Flash-Lite",
-                memoryKind="not_applicable",
-            )
-        query = [
-            "nvidia-smi",
-            "--query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total,name",
-            "--format=csv,noheader,nounits",
-        ]
-        result = self.runner.run(query, self.root, timeout=3)
-        parsed = parse_gpu_csv(result.stdout) if result.code == 0 else None
-        if parsed:
-            return evidence("available", "nvidia-smi on host", "direct", utc_now(), **parsed, memoryKind="gpu_vram")
-        if qwen_running:
-            nested = self.runner.run(self.compose + ["exec", "-T", "qwen-vision", *query], self.compose_dir, timeout=4)
-            parsed = parse_gpu_csv(nested.stdout) if nested.code == 0 else None
-            if parsed:
-                return evidence("available", "nvidia-smi via qwen-vision", "direct", utc_now(), **parsed, memoryKind="gpu_vram")
-        detail = "nvidia-smi 不可用" if not result.timed_out else "nvidia-smi 采集超时"
-        return unknown("nvidia-smi / qwen-vision", detail, utc_now())
+    def _gpu(self) -> dict[str, Any]:
+        return evidence(
+            "not_applicable",
+            "Codex reverse proxy model route",
+            "direct",
+            utc_now(),
+            detail="主模型和图片理解走 Codex 反代；GPU 仅属于可选的独立语音/图像生成辅助容器",
+            memoryKind="not_applicable",
+        )
 
-    def _ollama(self, qwen_running: bool) -> dict[str, Any]:
-        if self.deployment == "mac":
-            return evidence(
-                "not_applicable",
-                "macOS SenseNova cloud vision",
-                "direct",
-                utc_now(),
-                detail="Mac Compose 不启动本地模型服务",
-                currentModel=None,
-            )
-        if not qwen_running:
-            return unknown("ollama ps via qwen-vision", "qwen-vision 未运行", utc_now())
-        result = self.runner.run(self.compose + ["exec", "-T", "qwen-vision", "ollama", "ps"], self.compose_dir, timeout=4)
-        if result.code != 0:
-            return evidence("degraded", "ollama ps via qwen-vision", "not_collected", utc_now(), detail=_public_command_detail(result), currentModel=None)
-        model = parse_ollama_model(result.stdout)
-        return evidence("available", "ollama ps via qwen-vision", "direct", utc_now(), currentModel=model, modelLoaded=model is not None)
+    def _codex_proxy(self) -> dict[str, Any]:
+        return evidence(
+            "unknown",
+            "Codex reverse proxy model request",
+            "not_collected",
+            utc_now(),
+            model="gpt-5.6-luna",
+            detail="配置路由已采集；本机控制台不代替实际模型请求，不读取或返回反代 token",
+        )
 
     def _logs(self) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
         observed_at = utc_now()
@@ -890,7 +836,6 @@ class DockerCollector:
         by_service = {row["service"]: row for row in rows}
         services = [service_row(by_service.get(name), name, stats, observed_at) for name in self.services]
         gateway_port = self._gateway_port(docker_status)
-        qwen_running = by_service.get("qwen-vision", {}).get("state") == "running"
         log_status, logs, websocket, events = self._logs()
         public_host = os.environ.get("OPENCLAW_GATEWAY_PUBLIC_HOST") if self.deployment == "mac" else "127.0.0.1"
         if not public_host or public_host.startswith("replace-with-"):
@@ -911,8 +856,8 @@ class DockerCollector:
                 memoryKind="system_ram",
                 detail="Docker MEM USAGE 是系统 RAM，不是 GPU VRAM" if stats else "Docker 统计未采集",
             ),
-            "gpu": self._gpu(qwen_running),
-            "ollama": self._ollama(qwen_running),
+            "gpu": self._gpu(),
+            "codexProxy": self._codex_proxy(),
             "logs": log_status,
             "logRecords": logs,
             "websocket": websocket,
@@ -928,11 +873,11 @@ def probe_gateway(port: int, host: str = "127.0.0.1", timeout: float = 2.0) -> d
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
             status = "healthy" if 200 <= response.status < 300 else "degraded"
-            return evidence(status, "OpenClaw /healthz on Mac host", "direct", observed_at, httpStatus=response.status, port=port, host=probe_host)
+            return evidence(status, "OpenClaw /healthz on local host", "direct", observed_at, httpStatus=response.status, port=port, host=probe_host)
     except urllib.error.HTTPError as exc:
-        return evidence("degraded", "OpenClaw /healthz on Mac host", "direct", observed_at, httpStatus=exc.code, port=port, host=probe_host)
+        return evidence("degraded", "OpenClaw /healthz on local host", "direct", observed_at, httpStatus=exc.code, port=port, host=probe_host)
     except (OSError, urllib.error.URLError, TimeoutError):
-        return evidence("unknown", "OpenClaw /healthz on Mac host", "not_collected", observed_at, httpStatus=None, port=port, host=probe_host, detail="healthz 不可达")
+        return evidence("unknown", "OpenClaw /healthz on local host", "not_collected", observed_at, httpStatus=None, port=port, host=probe_host, detail="healthz 不可达")
 
 
 class SnapshotBuilder:
@@ -945,11 +890,7 @@ class SnapshotBuilder:
         self.docker = DockerCollector(self.root, runner, self.deployment)
         self.host = HostCollector(self.root, runner)
         self.config = RuntimeConfigCollector(config_path, config_source)
-        self.route = ModelRouteCollector(
-            self.root / "deploy" / "openclaw" / "runtime" / "model-route-state.json",
-            config_path,
-            config_source,
-        )
+        self.route = ModelRouteCollector(config_path, config_source)
         self.state = RuntimeStateCollector(self.root / STATE_DB_PATH, self.root / SESSION_DIR)
 
     @staticmethod
@@ -1048,14 +989,14 @@ class SnapshotBuilder:
                 "recentErrors": errors,
                 "host": host,
                 "gpu": runtime["gpu"],
-                "ollama": runtime["ollama"],
+                "codexProxy": runtime["codexProxy"],
                 "lastRefreshAt": observed_at,
             },
             "runtime": {
                 "services": runtime["services"],
                 "docker": {**runtime["status"], "systemRam": runtime["systemRam"]},
                 "gpu": runtime["gpu"],
-                "ollama": runtime["ollama"],
+                "codexProxy": runtime["codexProxy"],
                 "host": host,
                 "configuration": configuration,
                 "state": runtime_state,
@@ -1095,9 +1036,10 @@ class SnapshotBuilder:
                 "note": "Phase 1 只读；不提供任意命令、Docker socket、清理缓存或高风险重启",
             },
             "evidenceBoundary": [
-                "容器运行、healthz、端口监听、本地模型可用和 QQ 真实收发是不同证据层级",
+                "容器运行、healthz、端口监听、Codex 反代请求和 QQ 真实收发是不同证据层级",
                 "QQ WebSocket 状态若来自日志仅为低置信度推断，不能证明外部消息送达",
-                "GPU VRAM 仅来自 nvidia-smi；Docker MEM USAGE 单独标记为系统 RAM",
+                "主模型和图片理解统一走 Codex 反代；可选辅助容器不代表核心模型请求成功",
+                "Docker MEM USAGE 单独标记为系统 RAM；本页面不把它冒充 GPU VRAM",
             ],
             "secretsRedacted": True,
         }

@@ -23,8 +23,8 @@ REQUIRED_ENV = (
     "OPENCLAW_TZ",
     "QQBOT_APP_ID",
     "QQBOT_CLIENT_SECRET",
-    "SENSENOVA_API_KEY",
-    "DEEPSEEK_API_KEY",
+    "CODEX_PROXY_BASE_URL",
+    "CODEX_PROXY_TOKEN",
 )
 OPTIONAL_ENV = (
     "QQBOT_ALLOWED_USER_OPENID",
@@ -147,14 +147,6 @@ def preflight(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
-def read_json(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
 def health(args: argparse.Namespace) -> dict[str, Any]:
     env_file = args.env_file.resolve()
     compose_dir = args.compose_dir.resolve()
@@ -163,21 +155,26 @@ def health(args: argparse.Namespace) -> dict[str, Any]:
     deployment = args.deployment
     configured_gateway_host = values.get("OPENCLAW_GATEWAY_BIND_HOST")
     gateway_host = configured_gateway_host if configured(configured_gateway_host) else "127.0.0.1"
-    vision_status = {
-        "status": "not_applicable",
-        "detail": "Mac 使用 SenseNova 云端视觉；本地视觉服务未启用",
-        "source": "docker-compose.mac.yml",
+    codex_proxy = {
+        "status": "configured" if configured(values.get("CODEX_PROXY_BASE_URL")) and configured(values.get("CODEX_PROXY_TOKEN")) else "not_configured",
+        "model": "gpt-5.6-luna",
+        "base_url_configured": configured(values.get("CODEX_PROXY_BASE_URL")),
+        "token_configured": configured(values.get("CODEX_PROXY_TOKEN")),
+        "evidence": "environment only; does not prove a successful model request",
         "secrets_redacted": True,
-    } if deployment == "mac" else {"status": "unknown", "model_device": "unknown"}
+    }
     report: dict[str, Any] = {
         "mode": "health",
         "deployment": deployment,
         "gateway": {"http": probe_http(port, gateway_host)},
         "context_recovery": {"status": "unknown"},
-        "qwen_ollama": vision_status,
-        "gpu": vision_status if deployment == "mac" else {"status": "unknown", "devices": []},
+        "codex_proxy": codex_proxy,
         "logs": {"status": "unknown", "bytes": None, "max_bytes": 64 * 1024 * 1024},
-        "model_route": {"status": "unknown", "evidence": "no local watcher state"},
+        "model_route": {
+            "status": codex_proxy["status"],
+            "model": codex_proxy["model"],
+            "evidence": "environment/configuration only; run the Codex proxy probe for request-level evidence",
+        },
         "qq_delivery_verification": "not_verified_externally",
         "secrets_redacted": True,
     }
@@ -193,34 +190,6 @@ def health(args: argparse.Namespace) -> dict[str, Any]:
     recovery = by_service.get("context-recovery", {})
     report["gateway"]["container"] = gateway
     report["context_recovery"] = recovery or {"status": "not_found"}
-    if deployment != "mac":
-        qwen = by_service.get("qwen-vision", {})
-        report["qwen_ollama"]["container"] = qwen or {"status": "not_found"}
-
-    if deployment != "mac" and qwen:
-        code, output = run_command(command + ["exec", "-T", "qwen-vision", "ollama", "ps"], compose_dir)
-        report["qwen_ollama"]["ollama_ps"] = output.strip() if code == 0 else "unavailable"
-        report["qwen_ollama"]["status"] = "ready" if code == 0 else "unavailable"
-        report["qwen_ollama"]["model_device"] = (
-            "cuda_or_gpu_reported" if code == 0 and re.search(r"(?i)gpu|cuda", output) else "not_reported"
-        )
-        code, output = run_command(
-            command
-            + [
-                "exec",
-                "-T",
-                "qwen-vision",
-                "nvidia-smi",
-                "--query-gpu=name,driver_version,memory.used,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            compose_dir,
-        )
-        if code == 0:
-            report["gpu"] = {"status": "available", "devices": [line.strip() for line in output.splitlines() if line.strip()]}
-        else:
-            report["gpu"] = {"status": "unavailable_or_not_exposed", "devices": []}
-
     code, output = run_command(
         command + ["exec", "-T", "openclaw-gateway", "sh", "-c", "wc -c < /tmp/openclaw/gateway.log"], compose_dir
     )
@@ -235,14 +204,6 @@ def health(args: argparse.Namespace) -> dict[str, Any]:
             "max_bytes": 64 * 1024 * 1024,
         }
 
-    state = read_json(compose_dir / "runtime" / "model-route-state.json")
-    if state:
-        report["model_route"] = {
-            "status": state.get("route", "unknown"),
-            "last_probe": state.get("lastProbeAt"),
-            "status_code": state.get("statusCode"),
-            "evidence": "local watcher state; request-level fallback is not externally verified",
-        }
     return report
 
 

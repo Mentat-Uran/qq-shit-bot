@@ -35,7 +35,7 @@ def deployment_name(value: str | None = None) -> str:
 
 
 def default_services(deployment: str) -> tuple[str, ...]:
-    return ("openclaw-gateway", "context-recovery") if deployment == "mac" else ("openclaw-gateway", "context-recovery", "qwen-vision")
+    return ("openclaw-gateway", "context-recovery")
 
 
 def valid_bind_host(host: str) -> bool:
@@ -118,18 +118,18 @@ def degraded_snapshot(detail: str, *, host: str = HOST, deployment: str | None =
             "recentEventAt": None,
             "recentModelRequestAt": None,
             "recentSuccessfulReplyAt": None,
-            "modelRoute": unknown("model route state", detail, observed_at),
+            "modelRoute": unknown("Codex reverse proxy model request", detail, observed_at),
             "recentErrors": errors,
             "host": unknown_host,
-            "gpu": unknown("Mac SenseNova cloud vision" if mode == "mac" else "nvidia-smi / qwen-vision", detail, observed_at),
-            "ollama": unknown("Mac SenseNova cloud vision" if mode == "mac" else "ollama ps via qwen-vision", detail, observed_at),
+            "gpu": unknown("Codex reverse proxy model route", detail, observed_at),
+            "codexProxy": unknown("Codex reverse proxy model request", detail, observed_at),
             "lastRefreshAt": observed_at,
         },
         "runtime": {
             "services": services,
             "docker": unknown("docker compose", detail, observed_at),
-            "gpu": unknown("Mac SenseNova cloud vision" if mode == "mac" else "nvidia-smi / qwen-vision", detail, observed_at),
-            "ollama": unknown("Mac SenseNova cloud vision" if mode == "mac" else "ollama ps via qwen-vision", detail, observed_at),
+            "gpu": unknown("Codex reverse proxy model route", detail, observed_at),
+            "codexProxy": unknown("Codex reverse proxy model request", detail, observed_at),
             "host": unknown_host,
             "configuration": unknown_configuration,
             "history": [],

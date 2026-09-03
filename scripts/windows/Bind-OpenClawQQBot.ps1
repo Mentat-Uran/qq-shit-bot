@@ -272,8 +272,8 @@ if ($needsQr) {
 }
 
 $fields = @(
-    @{ Name = 'SENSENOVA_API_KEY'; Secret = $true },
-    @{ Name = 'DEEPSEEK_API_KEY'; Secret = $true }
+    @{ Name = 'CODEX_PROXY_BASE_URL'; Secret = $false },
+    @{ Name = 'CODEX_PROXY_TOKEN'; Secret = $true }
 )
 foreach ($field in $fields) {
     $current = if ($values.ContainsKey($field.Name)) { [string]$values[$field.Name] } else { '' }

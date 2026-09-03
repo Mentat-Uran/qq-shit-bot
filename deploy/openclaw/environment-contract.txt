@@ -10,7 +10,6 @@ OPENCLAW_GATEWAY_PUBLIC_HOST|optional|
 OPS_CONSOLE_BIND_HOST|optional|
 OPS_CONSOLE_PORT|optional|
 OPS_CONSOLE_TOKEN|optional|replace-with-ops-console-token
-SENSENOVA_VISION_MODEL|optional|replace-with-sensenova-vision-model
 OPENCLAW_UID|optional|
 OPENCLAW_GID|optional|
 QQBOT_APP_ID|required|replace-with-qq-app-id
@@ -18,14 +17,10 @@ QQBOT_CLIENT_SECRET|required|replace-with-qq-app-secret
 QQBOT_ALLOWED_USER_OPENID|optional|
 QQBOT_ALLOWED_MEMBER_OPENID|optional|
 QQBOT_HOME_CHANNEL|optional|
-SENSENOVA_API_KEY|required|replace-with-sensenova-api-key
-DEEPSEEK_API_KEY|required|replace-with-deepseek-api-key
-QWEN_IMAGE|optional|latest
-QWEN_BASE_URL|optional|
-QWEN_MODEL_ID|optional|
+CODEX_PROXY_BASE_URL|required|replace-with-codex-proxy-base-url
+CODEX_PROXY_TOKEN|required|replace-with-codex-proxy-token
 
 # Legacy aliases are migrated only when the canonical value is empty or a placeholder.
 # alias->canonical
-HERMES_DEEPSEEK_API_KEY|DEEPSEEK_API_KEY
 HERMES_QQBOT_HOME_CHANNEL|QQBOT_HOME_CHANNEL
 QQBOT_GROUP_OPENID|QQBOT_HOME_CHANNEL

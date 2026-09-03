@@ -1,9 +1,9 @@
-# Linux-local overlay for the existing loopback-only CLIProxyAPI.
+# Linux-local overlay for a Codex-compatible reverse proxy.
 # The Gateway and recovery sidecar use host networking so 127.0.0.1:18317
 # remains private to the host; the Gateway itself is still loopback-bound.
-# qwen-vision is intentionally not started by start-codex.sh.  The game
-# sidecar is CPU-only; its text games need no model call, while turtle soup
-# calls the local Luna proxy and neither path touches the TTS/ASR/ComfyUI GPU lease.
+# The game sidecar is CPU-only; its text games need no model call, while turtle
+# soup calls the same Codex proxy token and neither path touches the TTS/ASR/
+# ComfyUI GPU lease.
 services:
   qqbot-game:
     build:
@@ -16,8 +16,8 @@ services:
     environment:
       GAME_SERVICE_HOST: 127.0.0.1
       GAME_SERVICE_PORT: "18104"
-      GAME_LLM_BASE_URL: ${GAME_LLM_BASE_URL:-http://127.0.0.1:18317/v1}
-      GAME_LLM_API_KEY: ${GAME_LLM_API_KEY:-local}
+      GAME_LLM_BASE_URL: ${CODEX_PROXY_BASE_URL}
+      GAME_LLM_API_KEY: ${CODEX_PROXY_TOKEN}
       GAME_LLM_MODEL: ${GAME_LLM_MODEL:-gpt-5.6-luna}
       GAME_LLM_REASONING_EFFORT: ${GAME_LLM_REASONING_EFFORT:-max}
       GAME_AI_GENERATION_TIMEOUT: ${GAME_AI_GENERATION_TIMEOUT:-45}

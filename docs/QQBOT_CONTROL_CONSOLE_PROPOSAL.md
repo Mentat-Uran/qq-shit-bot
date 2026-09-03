@@ -1,10 +1,10 @@
 # QQ Bot 可视化控制台构想
 
-状态：方案记录，尚未进入实现阶段
+状态：Phase 1 已实现；本文保留后续产品范围和安全边界
 
 ## 1. 问题定义
 
-当前项目的正式运行形态是 OpenClaw + Docker。启动、停止、查看日志、检查模型和判断 QQ Bot 是否正常，主要依赖 Docker Desktop、PowerShell 和命令行。OpenClaw 自带的 Control UI 可以用于网关级操作，但它不是本项目的运行监控台，不能把 QQ 事件、会话上下文、恢复守护进程、Qwen 视觉服务、GPU 和 Docker 资源放在一个可观察的界面里。
+当前项目的正式运行形态是跨平台 Docker Compose。启动、停止、查看日志、检查 Codex 反代请求和判断 QQ Bot 是否正常，主要依赖 Docker Desktop、Docker Engine 和命令行。OpenClaw 自带的 Control UI 可以用于网关级操作，但它不是本项目的运行监控台，不能把 QQ 事件、会话上下文、恢复守护进程、统一模型路由、可选 GPU 辅助服务和 Docker 资源放在一个可观察的界面里。
 
 因此需要增加一个本机可访问的 QQ Bot Operations Console，目标不是重新实现 OpenClaw Control UI，也不是把所有命令行操作搬成按钮，而是提供一层面向本项目的运行态观察、诊断和少量受保护操作。
 
@@ -13,7 +13,7 @@
 可以把它理解为帕鲁服务器项目 Web Console 的 QQ Bot 版本：
 
 - 帕鲁控制台关注运行时、进程、端口、存档、备份、日志和维护操作；
-- QQ Bot 控制台关注 Docker 服务、QQ 连接、消息事件、会话状态、模型路由、GPU/内存、日志和恢复操作；
+- QQ Bot 控制台关注 Docker 服务、QQ 连接、消息事件、会话状态、Codex 反代路由、GPU/内存、日志和恢复操作；
 - 两者都应该是本机优先、状态分层、操作可追溯、敏感信息不出界的运维界面。
 
 它应当被命名为“运行控制台”或“运维控制台”，而不是“聊天后台”。界面主要服务于判断“现在发生了什么、哪里变慢了、哪个组件失效了、我能否安全地重启”，不承担日常 QQ 聊天内容管理。
@@ -38,12 +38,12 @@
 建议包含：
 
 - 总体状态：`正常`、`降级`、`异常`、`未知`；
-- OpenClaw Gateway、context-recovery、qwen-vision 三个正式服务的状态、健康检查、启动时间和最近状态变化；
+- OpenClaw Gateway、context-recovery 及可选辅助服务的状态、健康检查、启动时间和最近状态变化；
 - QQ WebSocket/适配器连接状态，以及最近接收事件、最近触发模型请求、最近成功回复的时间；
-- 当前主模型路由、是否发生过 fallback、模型请求成功率和最近一次错误类型；
+- 当前 `codex-proxy/gpt-5.6-luna` 路由、Codex 反代配置/请求证据、是否发生过 fallback 和最近一次错误类型；
 - 主机 CPU、内存、磁盘；GPU 利用率、温度、显存和当前加载模型；
 - 当前活跃会话数、待汇聚消息数、正在处理的请求数、上下文恢复次数；
-- 最近异常和待确认项，例如“Qwen 服务健康但模型尚未加载”“容器运行但 QQ 连接状态未知”“GPU 显存接近上限”；
+- 最近异常和待确认项，例如“Codex 反代只完成配置检查”“容器运行但 QQ 连接状态未知”“可选 GPU 辅助服务显存接近上限”；
 - 最后刷新时间和数据来源，明确区分实时采集、日志推断和暂时未知。
 
 首页不应只显示绿色的容器运行状态。容器是活着的，不等于 QQ 能收发消息、模型能正常回答或公网/外部链路已经可用。
@@ -55,11 +55,11 @@
 - 容器列表：名称、镜像、运行状态、健康状态、启动时间、重启次数；
 - 每个容器的 CPU、系统内存、网络和块设备读写；
 - 主机 GPU：利用率、显存使用、温度、功耗和进程；
-- Ollama 当前加载模型、模型大小、加载状态和最近一次使用时间；
+- Codex 反代的配置状态、最近一次受控请求结果和最近一次请求时间（若已执行探针）；
 - 资源时间序列：至少保留最近 1 小时，最好支持最近 24 小时；
 - 资源采集异常和权限不足单独标记，不把缺少 GPU 数据误报成 GPU 空闲。
 
-必须在界面和文档中明确：Docker 的 `MEM USAGE` 是系统 RAM，不是 VRAM；GPU 和 Qwen 模型状态需要用 `nvidia-smi`、Ollama 状态和服务健康检查交叉判断。
+必须在界面和文档中明确：Docker 的 `MEM USAGE` 是系统 RAM，不是 VRAM；核心文字/图片请求是否成功要用 Codex 反代探针或实际交互判断，GPU 只属于可选辅助服务，不能作为核心路由证据。
 
 ### 4.3 QQ Activity 与事件页
 
@@ -92,8 +92,7 @@
 
 - Gateway 日志；
 - context-recovery 日志；
-- Qwen/Ollama 日志；
-- 模型 watcher 和本地诊断过滤器状态；
+- Codex 反代请求的脱敏状态和本地诊断过滤器状态；
 - 按时间、服务、级别和关键词筛选；
 - 对错误进行摘要，但保留原始日志查看能力；
 - 支持复制一份脱敏诊断摘要，不支持直接下载包含密钥、完整配置或私聊内容的原始支持包。
@@ -107,7 +106,7 @@
 - 刷新健康检查；
 - 打开 OpenClaw Control UI；
 - 查看当前 Compose 项目和有效服务清单；
-- 启动或停止轻量 Qwen 图像服务；
+- 查看 Codex 反代配置/探针状态；
 - 在明确确认后重启 Gateway 或 context-recovery；
 - 查看最近一次操作的开始时间、执行结果和验证结果。
 
@@ -129,9 +128,9 @@
 采集层
   |-- Docker Engine / Compose 状态与容器统计
   |-- OpenClaw /healthz 和允许的本地控制接口
-  |-- Qwen/Ollama 状态
-  |-- nvidia-smi GPU 指标
-  |-- Gateway、recovery、watcher 日志
+  |-- Codex 反代配置与受控请求结果
+  |-- 可选辅助服务与 nvidia-smi GPU 指标
+  |-- Gateway、recovery 日志
   |-- 本项目新增的脱敏运行事件
   |
 本地持久化
@@ -174,7 +173,7 @@
 - 事件和日志：1 至 3 秒或使用 SSE；
 - 历史时间序列：按分钟聚合，避免无限增长。
 
-不要为了视觉上的“实时”而让控制台持续高频读取 Docker 日志、调用模型或唤醒 Qwen。监控程序不能反过来造成资源压力。
+不要为了视觉上的“实时”而让控制台持续高频读取 Docker 日志、调用模型或唤醒辅助服务。监控程序不能反过来造成资源压力。
 
 ## 6. 安全与隐私边界
 
@@ -185,7 +184,7 @@
 - 控制台后端不接受任意命令、任意路径、任意容器名或任意 URL；
 - 所有重启、停止、清理和配置修改操作都要有明确的二次确认；
 - UI 显示的“QQ 已连接”只代表当前可观察到的连接状态，不自动证明实际消息已经成功送达；
-- “容器健康”“端口监听”“本地模型可用”“真实 QQ 收发成功”必须作为不同证据层级显示；
+- “容器健康”“端口监听”“Codex 反代请求成功”“真实 QQ 收发成功”必须作为不同证据层级显示；
 - 发生采集失败时显示“未知”或“未采集”，不能静默显示为 0、空闲或正常。
 
 ## 7. 分阶段实现建议
@@ -193,7 +192,7 @@
 ### Phase 1：只读监控 MVP
 
 - 本机启动入口和单页 Dashboard；
-- Gateway、context-recovery、qwen-vision 状态；
+- Gateway、context-recovery 和可选辅助服务状态；
 - 主机 CPU/RAM/磁盘和 GPU/VRAM；
 - Docker 容器状态与基础统计；
 - OpenClaw healthz；
@@ -211,7 +210,7 @@
 
 ### Phase 3：受保护操作
 
-- 启动/停止轻量 Qwen 服务；
+- 查看 Codex 反代配置/探针状态；
 - Gateway、recovery 的受控重启；
 - 会话级恢复操作；
 - 操作锁、二次确认、操作日志和操作后复核；
@@ -241,8 +240,8 @@
 
 至少应能验证：
 
-1. 一条 Windows 本机启动路径可以启动控制台并打开页面；
-2. 页面能区分 Gateway、recovery、Qwen 服务的运行状态和健康状态；
+1. 一条 Docker 本机启动路径可以启动控制台并打开页面；
+2. 页面能区分 Gateway、recovery 和可选辅助服务的运行状态和健康状态；
 3. 页面能显示主机资源，能显示 GPU 时显示来源，不能显示时诚实标记未知；
 4. 页面不会泄露 `.env`、token、secret、私聊内容或完整用户标识；
 5. Docker 未运行时控制台本身仍能返回可读的降级状态；
@@ -252,7 +251,7 @@
 
 ## 10. 推荐的第一步
 
-先做 Phase 1，而不是同时做完整控制台。第一轮只需要让用户打开页面后在一分钟内看懂：Bot 是否活着、QQ 连接是否可观察、Qwen 是否占用 GPU、哪个容器异常、最近错误是什么、数据多久以前采集。等这些基础状态可靠后，再接入会话和事件流，最后才开放重启等操作。
+后续迭代应在已实现的 Phase 1 基础上扩展，而不是绕过现有只读边界。用户打开页面后应在一分钟内看懂：Bot 是否活着、QQ 连接是否可观察、Codex 反代是仅配置还是已有请求证据、哪个容器或可选辅助服务异常、最近错误是什么、数据多久以前采集。等这些基础状态可靠后，再接入更多会话和事件流，最后才开放重启等操作。
 
 ---
 
@@ -261,19 +260,19 @@
 ```text
 目标：在 C:\qqshitbot 中开发一个本机优先的 QQ Bot Operations Console，用于可视化监控当前 OpenClaw + Docker QQ Bot 的运行状态、内部处理流和资源占用，体验参考 C:\Services\PalworldServer 的本地 Web Console，但不要复制其业务模型，也不要替代 OpenClaw 原生 Control UI。
 
-项目事实：当前唯一支持的运行形态是 deploy/openclaw/ 下的 OpenClaw + Docker Compose；正式运行服务包括 openclaw-gateway、context-recovery 和 qwen-vision；Qwen2.5-VL 7B 是唯一启用的图像识别路径；视频桥和图像融合已归档，不得重新接入；密钥只存在于被 gitignore 的 deploy/openclaw/.env 中，绝不能进入前端、日志、测试输出或提交；现有 scripts/windows/Start-OpenClawQQBot.bat 和 deploy/openclaw/Start-OpenClawDocker.ps1 是正式启动链路，不能破坏。
+项目事实：当前唯一支持的运行形态是 deploy/openclaw/ 下的跨平台 OpenClaw + Docker Compose；核心运行服务包括 openclaw-gateway、context-recovery 和一次性初始化服务；所有平台的文字/图片路由都是 `codex-proxy/gpt-5.6-luna`，通过被忽略的 `deploy/openclaw/.env` 提供 `CODEX_PROXY_BASE_URL` 与 `CODEX_PROXY_TOKEN`；可选语音/游戏服务也只能以 Docker sidecar 运行；视频桥和图像融合已删除，不得重新接入；密钥绝不能进入前端、日志、测试输出或提交；现有跨平台 Docker 启动链路不能破坏。
 
-产品范围：新增一个只监听 127.0.0.1 的本机控制台，第一阶段优先完成只读监控 MVP。页面至少包括 Dashboard、Runtime/Resources、QQ Activity、Sessions/Context、Logs/Diagnostics 五个区域；Operations 可以先只提供刷新、打开 OpenClaw Control UI 和查看有效服务清单，不要一开始开放任意命令、Docker socket 全权限、清理缓存或高风险重启。
+产品范围：维护一个只监听 127.0.0.1 的本机控制台，第一阶段完成只读监控 MVP。页面包括 Dashboard、Runtime/Resources、QQ Activity、Sessions/Context、Logs/Diagnostics 五个区域；Operations 只提供刷新、打开 OpenClaw Control UI 和查看有效服务清单，不提供任意命令、Docker socket 全权限、清理缓存或高风险重启。
 
-Dashboard 必须能显示：Gateway、context-recovery、qwen-vision 的运行状态与健康状态；QQ/WebSocket 可观察连接状态；最近事件、最近模型请求、最近成功回复的时间（没有可靠数据时显示未知）；当前模型路由、fallback/超时摘要；主机 CPU、RAM、磁盘；GPU 利用率、温度、显存和当前 Ollama 模型（可用时）；最近错误和最后刷新时间。
+Dashboard 必须能显示：Gateway、context-recovery 和可选辅助服务的运行状态与健康状态；QQ/WebSocket 可观察连接状态；最近事件、最近模型请求、最近成功回复的时间（没有可靠数据时显示未知）；当前 `codex-proxy/gpt-5.6-luna` 路由、Codex 反代配置/请求证据和 fallback/超时摘要；主机 CPU、RAM、磁盘；可选 GPU 辅助服务的利用率、温度和显存（可用时）；最近错误和最后刷新时间。
 
-Runtime/Resources 必须区分 Docker 系统 RAM 与 GPU VRAM，不能把 Docker MEM USAGE 当成显存；GPU 数据必须注明 nvidia-smi/Ollama 等来源；Docker、GPU、Ollama 或 OpenClaw 采集失败时显示 unknown/degraded，而不是显示 0 或正常。
+Runtime/Resources 必须区分 Docker 系统 RAM 与 GPU VRAM，不能把 Docker MEM USAGE 当成显存；GPU 数据必须注明 `nvidia-smi` 等来源；Docker、可选 GPU 辅助服务、Codex 反代或 OpenClaw 采集失败时显示 unknown/degraded，而不是显示 0 或正常。
 
 QQ Activity 和 Sessions/Context 默认只展示脱敏元数据，不保存或展示完整消息正文、图片、用户 OpenID、完整群号、token 或 secret。尽量通过结构化、脱敏的本地事件模型记录事件类型、处理阶段、耗时、结果、会话摘要、队列长度、上下文估算、压缩和恢复次数；无法可靠取得的 token 数必须标记为未采集，不能用消息条数冒充。
 
-架构要求：控制台必须与 OpenClaw Gateway 解耦，采用明确的采集器/适配器读取 Docker Compose 状态、OpenClaw healthz、Qwen/Ollama 状态、nvidia-smi 指标和本地日志；浏览器不得直接访问 Docker socket；后端不得接受任意 Shell/PowerShell/Docker 命令、任意路径或任意 URL。REST + 定时轮询即可作为 MVP，SSE 可作为事件/日志的后续增强。资源采样必须有频率和保留上限，不能让监控程序本身造成明显额外负载。
+架构要求：控制台必须与 OpenClaw Gateway 解耦，采用明确的采集器/适配器读取 Docker Compose 状态、OpenClaw healthz、Codex 反代配置/受控请求结果、可选 GPU 指标和本地日志；浏览器不得直接访问 Docker socket；后端不得接受任意 Shell/PowerShell/Docker 命令、任意路径或任意 URL。REST + 定时轮询即可作为 MVP，SSE 可作为事件/日志的后续增强。资源采样必须有频率和保留上限，不能让监控程序本身造成明显额外负载。
 
-安全要求：默认绑定 127.0.0.1；不得读取或返回 .env 中的密钥；不得把原始认证头写进日志；前端错误页、诊断导出和 API 错误也必须脱敏；所有状态必须区分 observedAt、source 和可确认程度；容器运行、健康检查、端口监听、本地模型可用、QQ 真实收发成功是不同证据层级，不能互相替代；不要通过本机页面宣称已经证明外部 QQ 消息送达。
+安全要求：默认绑定 127.0.0.1；不得读取或返回 .env 中的密钥；不得把原始认证头写进日志；前端错误页、诊断导出和 API 错误也必须脱敏；所有状态必须区分 observedAt、source 和可确认程度；容器运行、健康检查、端口监听、Codex 反代请求成功、可选辅助服务可用和 QQ 真实收发成功是不同证据层级，不能互相替代；不要通过本机页面宣称已经证明外部 QQ 消息送达。
 
 实现要求：先阅读 AGENTS.md、README.md、deploy/openclaw/README.md、deploy/openclaw/docker-compose.yml、正式启动脚本和现有测试；先审计当前 web/、website/ 和项目依赖，再选择最少的新技术。优先使用可维护的本机服务 + 静态前端结构，避免为了一个页面引入不必要的大型平台。可以选择 Go 单一可执行文件、现有项目可复用的 Python/Node 服务，或受限 sidecar，但必须说明为什么选择，并保留 Windows 本机启动路径。
 
@@ -281,12 +280,12 @@ QQ Activity 和 Sessions/Context 默认只展示脱敏元数据，不保存或�
 1. 可运行的本机控制台及启动入口；
 2. 清晰的前后端目录结构和 API/数据模型说明；
 3. Dashboard、Runtime/Resources、Logs/Diagnostics 的可用 MVP；
-4. 对 Docker 停止、GPU 不可用、Qwen 未启动、日志为空、端口冲突、采集超时等场景的降级 UI；
+4. 对 Docker 停止、可选 GPU 不可用、Codex 反代不可达、日志为空、端口冲突、采集超时等场景的降级 UI；
 5. 脱敏和本机绑定测试；
 6. 组件/API/采集器测试，以及现有 Docker Compose 与启动链路回归测试；
 7. 中文 README 或文档，说明启动、端口、数据来源、证据边界、隐私边界和当前未实现功能。
 
-验收标准：在本机 Docker Desktop 正常时，打开控制台后 1 分钟内可以看懂 Bot 是否活着、哪个服务异常、GPU/内存占用如何、最近错误是什么；停止任一服务或让 GPU 数据不可用时，页面仍能打开并准确显示降级/未知；静态检查、测试、构建和启动链路验证通过；git diff --check 通过；没有新增敏感文件、密钥、私聊内容、图片或归档视觉服务依赖；不能把“代码构建成功”“容器运行”“本机健康检查”写成“真实 QQ 外部收发已验证”。
+验收标准：在 Docker 正常时，打开控制台后 1 分钟内可以看懂 Bot 是否活着、哪个服务异常、Codex 反代是仅配置还是已有请求证据、GPU/内存占用如何、最近错误是什么；停止任一服务或让可选 GPU 数据不可用时，页面仍能打开并准确显示降级/未知；静态检查、测试、构建和启动链路验证通过；git diff --check 通过；没有新增敏感文件、密钥、私聊内容、图片或归档视觉服务依赖；不能把“代码构建成功”“容器运行”“本机健康检查”写成“真实 QQ 外部收发已验证”。
 
 执行方式：先给出当前仓库审计和最小实现计划，然后直接在本地实现 Phase 1；每完成一个阶段都运行对应测试并查看实际页面；遇到普通的技术取舍直接选择维护性更好的方案，不要停在泛泛的原型或只给截图；最终报告变更文件、启动命令、测试结果、页面实际可见状态以及仍未验证的外部边界。
 ```

@@ -7,11 +7,10 @@ set "ENV_FILE=%DEPLOY_DIR%\.env"
 set "RUNTIME_DIR=%DEPLOY_DIR%\runtime"
 set "COMPOSE_ARGS=--env-file .env -f docker-compose.yml -f docker-compose.local.yml"
 set "PLUGIN_SPEC=@tencent-connect/openclaw-qqbot@2.0.3"
-set "QWEN_IMAGE=ollama/ollama:0.32.5"
 
 echo Starting OpenClaw QQ Bot from:
 echo %PROJECT_DIR%
-echo Default media: local Qwen image understanding only
+echo Text and image understanding: Codex reverse proxy
 echo.
 
 if not exist "%ENV_FILE%" (
@@ -32,10 +31,8 @@ if errorlevel 1 (
 
 for /f "usebackq tokens=1,* delims==" %%A in ("%ENV_FILE%") do (
     if /i "%%A"=="OPENCLAW_QQBOT_PLUGIN" set "PLUGIN_SPEC=%%B"
-    if /i "%%A"=="QWEN_IMAGE" set "QWEN_IMAGE=%%B"
 )
 
-call :migrate_env_alias DEEPSEEK_API_KEY HERMES_DEEPSEEK_API_KEY
 call :migrate_env_alias QQBOT_HOME_CHANNEL HERMES_QQBOT_HOME_CHANNEL
 call :migrate_env_alias QQBOT_HOME_CHANNEL QQBOT_GROUP_OPENID
 
@@ -43,9 +40,9 @@ call :require_env QQBOT_APP_ID replace-with-qq-app-id
 if errorlevel 1 goto :fail
 call :require_env QQBOT_CLIENT_SECRET replace-with-qq-app-secret
 if errorlevel 1 goto :fail
-call :require_env SENSENOVA_API_KEY replace-with-sensenova-api-key
+call :require_env CODEX_PROXY_BASE_URL replace-with-codex-proxy-base-url
 if errorlevel 1 goto :fail
-call :require_env DEEPSEEK_API_KEY replace-with-deepseek-api-key
+call :require_env CODEX_PROXY_TOKEN replace-with-codex-proxy-token
 if errorlevel 1 goto :fail
 call :require_env OPENCLAW_GATEWAY_TOKEN replace-with-a-random-token
 if errorlevel 1 goto :fail
@@ -104,39 +101,6 @@ if errorlevel 1 (
 echo Validating OpenClaw configuration...
 docker compose %COMPOSE_ARGS% run --rm --no-deps openclaw-cli config validate
 if errorlevel 1 goto :fail_after_pushd
-
-docker image inspect "%QWEN_IMAGE%" >nul 2>&1
-if errorlevel 1 (
-    echo Pulling Qwen image...
-    docker compose %COMPOSE_ARGS% pull qwen-vision
-    if errorlevel 1 goto :fail_after_pushd
-) else (
-    echo Using existing local Qwen image: %QWEN_IMAGE%
-)
-
-echo Starting Qwen image service...
-docker compose %COMPOSE_ARGS% up -d --pull never qwen-vision
-if errorlevel 1 goto :fail_after_pushd
-
-set "QWEN_READY="
-for /l %%N in (1,1,30) do (
-    if not defined QWEN_READY (
-        docker compose %COMPOSE_ARGS% exec -T qwen-vision ollama list >nul 2>&1
-        if not errorlevel 1 set "QWEN_READY=1"
-        if not defined QWEN_READY timeout /t 2 /nobreak >nul
-    )
-)
-if not defined QWEN_READY (
-    echo ERROR: Qwen image service did not become ready.
-    goto :fail_after_pushd
-)
-
-docker compose %COMPOSE_ARGS% exec -T qwen-vision ollama list | findstr /b /c:"qwen2.5vl:7b" >nul 2>&1
-if errorlevel 1 (
-    echo Pulling Qwen vision model qwen2.5vl:7b...
-    docker compose %COMPOSE_ARGS% exec -T qwen-vision ollama pull qwen2.5vl:7b
-    if errorlevel 1 goto :fail_after_pushd
-)
 
 echo Starting OpenClaw gateway and context recovery...
 docker compose %COMPOSE_ARGS% up -d --pull never --force-recreate openclaw-gateway context-recovery

@@ -66,7 +66,7 @@
 
           <div class="dashboard-grid">
             <article class="panel resource-panel">
-              <div class="panel-heading"><div><p class="eyebrow">资源分层</p><h3>占用分层</h3></div><span class="panel-tag">RAM ≠ VRAM</span></div>
+              <div class="panel-heading"><div><p class="eyebrow">资源分层</p><h3>占用分层</h3></div><span class="panel-tag">Docker + Codex</span></div>
               <div class="resource-list" id="resource-list"></div>
               <p class="panel-footnote">Docker MEM USAGE 是系统 RAM；GPU 显存只认 nvidia-smi 证据。</p>
             </article>
@@ -76,7 +76,7 @@
               <div class="route-arrow">→</div>
               <div class="route-main fallback"><span class="route-label">备用模型</span><strong id="route-fallback">未采集</strong></div>
               <div class="route-meta" id="route-meta">等待模型路由证据</div>
-              <div class="ollama-signal"><span class="route-label" id="vision-label">本地视觉 / 当前模型</span><strong id="ollama-model">未采集</strong><small id="ollama-source">视觉模式未采集</small></div>
+              <div class="codex-signal"><span class="route-label" id="vision-label">Codex 反代 / 当前模型</span><strong id="codex-model">未采集</strong><small id="codex-source">反代请求未采集</small></div>
             </article>
           </div>
 
@@ -104,10 +104,10 @@
         </section>
 
         <section class="page-section" data-page="runtime">
-          <div class="section-intro"><p class="eyebrow accent-text">运行与资源</p><h3>资源有边界，证据有来源</h3><p>把主机 RAM、Docker 容器 RAM 和视觉模式拆开观察，采集失败时保留未知态。</p></div>
+          <div class="section-intro"><p class="eyebrow accent-text">运行与资源</p><h3>资源有边界，证据有来源</h3><p>把主机 RAM、Docker 容器 RAM 和 Codex 反代路由拆开观察，采集失败时保留未知态。</p></div>
           <div class="resource-card-grid" id="runtime-resource-cards"></div>
           <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">Compose 服务</p><h3>有效服务清单</h3></div><span class="panel-tag">固定白名单</span></div><div class="service-table-wrap"><table class="service-table"><thead><tr><th>服务</th><th>运行态</th><th>健康状态</th><th>系统 RAM</th><th>数据来源</th></tr></thead><tbody id="service-table"></tbody></table></div></article>
-          <article class="panel evidence-panel"><div class="panel-heading"><div><p class="eyebrow">证据层级</p><h3>数据边界</h3></div></div><div class="evidence-grid"><div><span class="evidence-number">01</span><strong>直接采集</strong><p>Compose、healthz、nvidia-smi 和 Ollama 只说明本机组件状态。</p></div><div><span class="evidence-number">02</span><strong>日志推断</strong><p>连接、错误和备用路由只保留短摘要，不保存正文或认证头。</p></div><div><span class="evidence-number">03</span><strong>外部验证</strong><p>QQ 真实消息送达不由本地控制台证明。</p></div></div></article>
+          <article class="panel evidence-panel"><div class="panel-heading"><div><p class="eyebrow">证据层级</p><h3>数据边界</h3></div></div><div class="evidence-grid"><div><span class="evidence-number">01</span><strong>直接采集</strong><p>Compose、healthz 和 Docker 资源只说明本机组件状态。</p></div><div><span class="evidence-number">02</span><strong>日志推断</strong><p>连接、错误和模型请求只保留短摘要，不保存正文或认证头。</p></div><div><span class="evidence-number">03</span><strong>外部验证</strong><p>QQ 真实消息送达不由本地控制台证明。</p></div></div></article>
         </section>
 
         <section class="page-section" data-page="activity">
@@ -126,7 +126,7 @@
           <div class="section-intro"><p class="eyebrow accent-text">日志 / 诊断</p><h3>短尾日志，脱敏后再出边界</h3><p>只读取固定服务的有限日志尾部；原始认证头、消息正文、图片和用户标识不会通过 API 返回。</p></div>
           <div class="log-toolbar"><span class="panel-tag" id="log-status">未知</span><span id="log-retention">尾部 80 行 / 最多 80 条记录</span><button class="button button-quiet" id="copy-diagnostics-logs" type="button">复制脱敏 JSON</button></div>
           <article class="panel log-panel"><div class="log-list" id="log-list"></div></article>
-          <article class="panel diagnostics-note"><div class="note-marker">/</div><div><p class="eyebrow">诊断约定</p><h3>未知优先于假精确</h3><p>Docker 停止、GPU 不可用、Qwen 未启动、日志为空、端口冲突和采集超时都应留在页面上，并标明采集时间、数据来源和可信度（observedAt、source、confidence）。</p></div></article>
+          <article class="panel diagnostics-note"><div class="note-marker">/</div><div><p class="eyebrow">诊断约定</p><h3>未知优先于假精确</h3><p>Docker 停止、Codex 反代请求未采集、日志为空、端口冲突和采集超时都应留在页面上，并标明采集时间、数据来源和可信度（observedAt、source、confidence）。</p></div></article>
         </section>
       </div>
     </main>
