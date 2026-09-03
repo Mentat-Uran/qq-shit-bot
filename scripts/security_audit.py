@@ -61,7 +61,7 @@ def main() -> int:
                 findings.append({"kind": "unpinned-image", "file": path.relative_to(root).as_posix()})
 
     if env_example.exists() and not re.search(
-        r"OPENCLAW_QQBOT_PLUGIN=@openclaw/qqbot@\d+\.\d+\.\d+", env_example.read_text(encoding="utf-8")
+        r"OPENCLAW_QQBOT_PLUGIN=@tencent-connect/openclaw-qqbot@\d+\.\d+\.\d+", env_example.read_text(encoding="utf-8")
     ):
         findings.append({"kind": "unpinned-plugin", "file": "deploy/openclaw/.env.example"})
 

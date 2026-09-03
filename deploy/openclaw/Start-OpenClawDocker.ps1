@@ -82,7 +82,7 @@ function Set-RuntimeEnvironment {
     }
 
     $plugin = Get-DotEnvValue -Path $envFile -Name 'OPENCLAW_QQBOT_PLUGIN'
-    $env:OPENCLAW_QQBOT_PLUGIN = if ($plugin) { $plugin } else { '@openclaw/qqbot@2026.7.1' }
+    $env:OPENCLAW_QQBOT_PLUGIN = if ($plugin) { $plugin } else { '@tencent-connect/openclaw-qqbot@2.0.3' }
 
     $storedGatewayToken = Get-DotEnvValue -Path $envFile -Name 'OPENCLAW_GATEWAY_TOKEN'
     if ([string]::IsNullOrWhiteSpace($env:OPENCLAW_GATEWAY_TOKEN) -or $env:OPENCLAW_GATEWAY_TOKEN -like 'replace-with-*') {
@@ -117,6 +117,27 @@ function Invoke-Compose {
     }
     if ($exitCode -ne 0) {
         throw "Docker Compose failed with exit code $exitCode."
+    }
+}
+
+function Move-LegacyQQBotProject {
+    $projectsDir = Join-Path $configDir 'npm\projects'
+    if (-not (Test-Path -LiteralPath $projectsDir -PathType Container)) {
+        return
+    }
+    $legacyDir = Join-Path $configDir 'npm\legacy-plugins'
+    New-Item -ItemType Directory -Path $legacyDir -Force | Out-Null
+    foreach ($project in Get-ChildItem -LiteralPath $projectsDir -Directory) {
+        $legacyPackage = Join-Path $project.FullName 'node_modules\@openclaw\qqbot'
+        if (-not (Test-Path -LiteralPath $legacyPackage -PathType Container)) {
+            continue
+        }
+        $destination = Join-Path $legacyDir $project.Name
+        if (Test-Path -LiteralPath $destination) {
+            $destination = "$destination-$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+        }
+        Move-Item -LiteralPath $project.FullName -Destination $destination
+        Write-Host "Quarantined legacy @openclaw/qqbot project under $destination."
     }
 }
 
@@ -347,17 +368,17 @@ try {
     }
     Invoke-Compose -Arguments (@('pull') + $pullServices)
     Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'qq-diagnostic-filter-init')
+    Move-LegacyQQBotProject
 
-    $previousErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $null = & docker compose @composeFiles run --rm --no-deps openclaw-cli plugins inspect qqbot --json 2>$null
-        $inspectExitCode = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $previousErrorAction
+    $newPluginInspection = (& docker compose @composeFiles run --rm --no-deps openclaw-cli plugins inspect openclaw-qqbot --json 2>$null | Out-String)
+    $newPluginInspectExitCode = $LASTEXITCODE
+    if ($newPluginInspectExitCode -ne 0 -or $newPluginInspection -notmatch '2\.0\.3') {
+        Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'plugins', 'install', $env:OPENCLAW_QQBOT_PLUGIN, '--force', '--pin', '--accept-capabilities')
     }
-    if ($inspectExitCode -ne 0) {
-        Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'plugins', 'install', $env:OPENCLAW_QQBOT_PLUGIN, '--force', '--pin')
+    $duckInspection = (& docker compose @composeFiles run --rm --no-deps openclaw-cli plugins inspect duckduckgo --json 2>$null | Out-String)
+    $duckInspectExitCode = $LASTEXITCODE
+    if ($duckInspectExitCode -ne 0 -or $duckInspection -notmatch '2026\.8\.2') {
+        Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'plugins', 'install', '@openclaw/duckduckgo-plugin@2026.8.2', '--force', '--pin', '--accept-capabilities')
     }
     Invoke-Compose -Arguments @('run', '--rm', '--no-deps', 'openclaw-cli', 'config', 'validate')
     $mediaMode = if ($NoVision) { 'none' } else { 'image' }

@@ -21,8 +21,8 @@ class FakeRunner:
             return CommandResult(1, stderr="Cannot connect to the Docker daemon")
         if "ps --all" in joined:
             rows = [
-                {"Service": "openclaw-gateway", "Name": "qq-shit-bot-openclaw-gateway-1", "Image": "openclaw:2026.7.1", "State": "running", "Health": "healthy"},
-                {"Service": "context-recovery", "Name": "qq-shit-bot-context-recovery-1", "Image": "openclaw:2026.7.1", "State": "running", "Health": ""},
+                {"Service": "openclaw-gateway", "Name": "qq-shit-bot-openclaw-gateway-1", "Image": "openclaw:2026.8.2", "State": "running", "Health": "healthy"},
+                {"Service": "context-recovery", "Name": "qq-shit-bot-context-recovery-1", "Image": "openclaw:2026.8.2", "State": "running", "Health": ""},
                 {"Service": "qwen-vision", "Name": "qq-shit-bot-qwen-vision-1", "Image": "ollama:0.32.5", "State": "running", "Health": "healthy"},
             ]
             return CommandResult(0, "\n".join(json.dumps(row) for row in rows))

@@ -1,12 +1,12 @@
 name: qq-shit-bot
 
 x-openclaw-common: &openclaw-common
-  image: ${OPENCLAW_MAC_IMAGE:-qq-shit-bot-openclaw-mac:2026.7.1}
+  image: ${OPENCLAW_MAC_IMAGE:-qq-shit-bot-openclaw-mac:2026.8.2}
   build:
     context: .
     dockerfile: Dockerfile.mac
     args:
-      OPENCLAW_IMAGE: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.7.1}
+      OPENCLAW_IMAGE: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.8.2}
   env_file:
     - path: .env
       required: true
@@ -38,7 +38,7 @@ x-openclaw-common: &openclaw-common
 
 services:
   qq-diagnostic-filter-init:
-    image: ${OPENCLAW_MAC_IMAGE:-qq-shit-bot-openclaw-mac:2026.7.1}
+    image: ${OPENCLAW_MAC_IMAGE:-qq-shit-bot-openclaw-mac:2026.8.2}
     user: "0:0"
     volumes:
       - qq-diagnostic-filter-mac:/opt/openclaw-local
