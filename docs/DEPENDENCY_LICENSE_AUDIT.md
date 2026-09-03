@@ -5,8 +5,9 @@
 | 项目 | 当前约束 | 运行边界 | 许可证证据边界 |
 | --- | --- | --- | --- |
 | 本仓库 | `LICENSE` 的 MIT 文本 | 仓库代码与文档 | 以仓库根目录 `LICENSE` 为准 |
-| OpenClaw 镜像 | `ghcr.io/openclaw/openclaw:2026.7.1` | Docker 内 Gateway/CLI | 升级前须按上游发布物重新核对许可证和镜像摘要 |
-| `@openclaw/qqbot` | `@openclaw/qqbot@2026.7.1`，安装命令使用 `--pin` | Docker 内官方 QQ 适配器 | 升级前须按 npm 包元数据重新核对许可证 |
+| OpenClaw 镜像 | `ghcr.io/openclaw/openclaw:2026.8.2` | Docker 内 Gateway/CLI | 升级前须按上游发布物重新核对许可证和镜像摘要 |
+| `@tencent-connect/openclaw-qqbot` | `@tencent-connect/openclaw-qqbot@2.0.3`，安装命令使用 `--pin` | Docker 内官方 QQBot 2.x 适配器 | 升级前须按 npm 包元数据重新核对许可证 |
+| `@openclaw/duckduckgo-plugin` | `@openclaw/duckduckgo-plugin@2026.8.2`，安装命令使用 `--pin` | Docker 内无密钥 DuckDuckGo 搜索适配器 | 升级前须按 npm 包元数据重新核对许可证 |
 | Ollama | `ollama/ollama:0.32.5` | 仅提供私有 Qwen 图片路径 | 升级前须按镜像和 Ollama 上游元数据重新核对许可证 |
 | Qwen 模型 | `qwen2.5vl:7b` | 私有 Compose 网络、按需加载 | 模型权重许可和使用范围不由本仓库 MIT 文本覆盖，使用者需单独核对 |
 | 部署测试工具 | `tests/requirements-deploy.txt` 中的 pytest/PyYAML 精确版本 | 仅 CI/本地验收，不进入运行镜像 | 各包许可证仍以其发布元数据为准，升级时重新核对 |

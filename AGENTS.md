@@ -4,11 +4,11 @@
 
 ## 项目现状
 
-- 本仓库运行形态是 OpenClaw `2026.7.1`、官方 `@openclaw/qqbot` 插件和 Docker Compose；部署入口位于 `deploy/openclaw/`。
+- 本仓库运行形态是 OpenClaw `2026.8.2`、官方 `@tencent-connect/openclaw-qqbot` `2.0.3` 插件和 Docker Compose；两者分别跟随各自的稳定版本线，部署入口位于 `deploy/openclaw/`。
 - Windows 使用默认 Compose 与本地 Qwen2.5-VL 7B 图像路径；macOS 使用 `docker-compose.mac.yml`，SenseNova 负责视觉，官方 DeepSeek V4 Flash 负责文字，默认思考级别为 `medium`。
 - Mage-VL 视频桥和 NVIDIA LocateAnything-3B 图像融合路径已移除；不要重新接入已经退休的模型、镜像或 Compose 文件。
 - Windows 正式入口是 `scripts/windows/Start-OpenClawQQBot.bat`；macOS 正式入口是 `scripts/mac/start.sh`、`stop.sh`、`status.sh`、`logs.sh` 和 `check-env.sh`。
-- 当前上下文优化以短运行时规则、群历史上限 1、单次 @ 独立处理、steer 队列小上限、工具结果裁剪和 compaction 为核心；不要通过扩大历史或系统提示词解决上下文问题。
+- 当前 Linux Codex overlay 使用有上限的 12 条群历史候选上下文、单次 @ 独立处理、steer 队列小上限、工具结果裁剪和 compaction；模型必须先判断历史与当前消息的关系，不能因为消息在窗口内就强行带入，也不能用无限扩大历史或提示词替代相关性判断。
 - 项目不启用软件强制合盖运行；不要新增 Lidless、`pmset disablesleep` 或其他绕过 macOS 睡眠策略的常驻控制。
 - 本机 health、Compose 状态、模型探针和 CI 只证明各自范围内的证据；不能把它们写成真实 QQ 收发、第三方额度、生产可用性或局域网可达性的证明。
 
