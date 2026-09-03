@@ -1,0 +1,17 @@
+[Unit]
+Description=qqshitbot exclusive GPU gate for TTS, ASR, and ComfyUI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mentat/services/qq-shit-bot/deploy/openclaw
+ExecStart=/usr/bin/python3 /home/mentat/services/qq-shit-bot/deploy/openclaw/tts-comfy-gate.py
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=45
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
