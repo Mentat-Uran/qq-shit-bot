@@ -6,6 +6,8 @@ import {
   filterMediaByCapability,
   filterVideoByMention,
   buildInjectedMediaPolicySource,
+  isQqMediaDownloadUrl,
+  sanitizeQqMediaUrls,
   applySingleImageLimit,
   selectSingleImage,
   shouldUseRecentImage,
@@ -86,8 +88,9 @@ test("the patcher's injected runtime policy follows the same fail-closed behavio
     { attachments: [{ type: "image", localPath: "recent-group-image" }] },
   ], "看上面的图"))), { path: "recent-group-image", contentType: "image/png" });
 
-  const disabledRuntime = vm.runInNewContext(`${source}; ({ mergeSingleQuotedImage, imageMediaFromAttachments })`, {
+  const disabledRuntime = vm.runInNewContext(`${source}; ({ mergeSingleQuotedImage, imageMediaFromAttachments, isQqMediaDownloadUrl, sanitizeQqMediaUrls })`, {
     fs$1: { readFileSync: () => '{"image":false,"video":false}' },
+    URL,
   });
   assert.deepEqual(JSON.parse(JSON.stringify(disabledRuntime.mergeSingleQuotedImage({ imageUrls: [], imageMediaTypes: [] }, {
     media: [{ path: "quoted-image", contentType: "image/png" }],
@@ -101,4 +104,69 @@ test("the patcher's injected runtime policy follows the same fail-closed behavio
     { type: "file", localPath: "not-an-image" },
     { type: "image", localPath: "actual-image" },
   ]))), [{ path: "actual-image", contentType: "image/png" }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(disabledRuntime.imageMediaFromAttachments([
+    { type: "image", url: "https://multimedia.nt.qq.com.cn/download?appid=x" },
+  ]))), []);
+  assert.equal(disabledRuntime.isQqMediaDownloadUrl("https://multimedia.nt.qq.com.cn/download?appid=x"), true);
+  assert.equal(disabledRuntime.isQqMediaDownloadUrl("https://example.com/download?appid=x"), false);
+  assert.equal(disabledRuntime.sanitizeQqMediaUrls("前 https://multimedia.nt.qq.com.cn/download?appid=x&rkey=y 后"), "前 [QQ image attachment] 后");
+});
+
+test("quoted QQ media uses a local download result and never returns the signed URL", async () => {
+  const source = buildInjectedMediaPolicySource("/tmp/media-capabilities.json");
+  const png = Buffer.alloc(33);
+  Buffer.from("89504e470d0a1a0a", "hex").copy(png, 0);
+  png.writeUInt32BE(1, 16);
+  png.writeUInt32BE(1, 20);
+  let fetchOptions;
+  const runtime = vm.runInNewContext(`${source}; ({ resolveQuoteImageMedia })`, {
+    URL,
+    AbortController: class {
+      signal = {};
+      abort() {}
+    },
+    Buffer,
+    clearTimeout,
+    crypto: { randomBytes: () => ({ toString: () => "abcdef" }) },
+    fetchWithSsrFGuard: async (options) => {
+      fetchOptions = options;
+      return {
+      response: {
+        ok: true,
+        headers: { get: (name) => name === "content-type" ? "image/png" : "0" },
+        body: [png],
+      },
+      release: async () => {},
+      };
+    },
+    fs$1: {
+      readFileSync: () => '{"image":true,"video":false}',
+      mkdirSync: () => {},
+      promises: { writeFile: async () => {} },
+    },
+    getQQBotMediaDir: () => "/home/node/.openclaw/media/qqbot/downloads",
+    path$1: { join: (...parts) => parts.join("/") },
+    parseImageSize: () => ({ width: 1, height: 1 }),
+    setTimeout,
+  });
+  const media = await runtime.resolveQuoteImageMedia(
+    [],
+    { accountId: "default", config: {} },
+    { cfg: {}, adapters: { audioConvert: {} } },
+    { debug: () => {} },
+    "引用内容 https://multimedia.nt.qq.com.cn/download?appid=x&rkey=y",
+  );
+  assert.equal(media.length, 1);
+  assert.equal(media[0].contentType, "image/png");
+  assert.match(media[0].path, /^\/home\/node\/\.openclaw\/media\/qqbot\/downloads\/qq-quoted-image_/);
+  assert.deepEqual(JSON.parse(JSON.stringify(fetchOptions.policy)), {
+    hostnameAllowlist: ["multimedia.nt.qq.com.cn"],
+    allowedHostnames: ["multimedia.nt.qq.com.cn"],
+  });
+});
+
+test("QQ signed media URLs are recognized narrowly and redacted from model text", () => {
+  assert.equal(isQqMediaDownloadUrl("https://multimedia.nt.qq.com.cn/download?appid=x"), true);
+  assert.equal(isQqMediaDownloadUrl("https://multimedia.nt.qq.com.cn.evil.example/download?appid=x"), false);
+  assert.equal(sanitizeQqMediaUrls("图片 https://multimedia.nt.qq.com.cn/download?appid=x&rkey=y"), "图片 [QQ image attachment]");
 });
