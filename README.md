@@ -8,7 +8,7 @@
 
 - QQ 私聊、群聊和明确 @ 触发;网关可接收群消息，但运行时人格仍要求群聊回复以当前 @ 或直接提问为触发条件。
 - 群聊上下文按群独立维护:Linux Codex overlay 每个 @ 默认带当前消息和最近 12 条未 @ 消息作为候选上下文，模型先判断历史和当前消息的关系，相关才纳入推理，无关就忽略；队列使用小容量 steer 模式，60 分钟空闲自动重置；`context-recovery` 守护进程在上下文溢出或模型卡死时自动重置对应群会话。
-- Linux Codex overlay 还提供 CPU-only 海龟汤群聊小游戏：复用开源 `nonebot-plugin-ai-turtle-soup` 引擎，默认使用 20 道本地题库（含带 CC BY 署名的公开示例改编题），每个群独立持久化轮换，当前轮次不重复同一道汤面；LunaMax 负责是/否裁判，联网检索出题可通过 `GAME_PUZZLE_SOURCE=ai` 开启。
+- Linux Codex overlay 还提供 CPU-only 群聊小游戏：海龟汤、成语接龙和猜成语。海龟汤复用开源 `nonebot-plugin-ai-turtle-soup` 引擎，开始/状态只展示汤面，不展示会泄露信息的标题；默认使用 50 道本地题库（含带 CC BY 署名的公开示例改编题和 30 道原创悬疑/惊悚/恐怖题），每个群独立持久化轮换，当前轮次不重复同一道汤面；支持 `开始海龟汤 悬疑惊悚恐怖`、`开始海龟汤 恐怖医院` 等自然主题提示词，LunaMax 负责是/否裁判，联网检索出题可通过 `GAME_PUZZLE_SOURCE=ai` 开启。海龟汤每次主持回答开头都会显示当前问题的短摘要，便于多人对应，不再显示提问者 ID。成语接龙和猜成语使用固定 MIT 成语库，不需要模型调用，直接在群里发四字成语即可。
 - Linux Codex overlay 的 QQ 菜单提供显式 TTS 朗读和语调选择：普通文字回复始终是文字，使用 `读：内容` 发语音；成功转写的 QQ 语音入站会把一次 AI 回答转成一次原生语音，菜单可选择温柔、播音、戏剧或正常语调。
 - 引用文本、图片、语音、文件和 QQ 小程序卡片摘要处理;小程序有标题时先搜索标题再解读,查不到时不编造正文。
 - Windows 文字主模型是商汤 SenseNova `deepseek-v4-flash`,官方 DeepSeek `deepseek-chat` 作为 fallback；Mac 使用官方 DeepSeek `deepseek-v4-flash` API，默认思考级别为 medium。

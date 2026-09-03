@@ -134,6 +134,40 @@ def test_surface_duplicates_are_removed_before_rotation(tmp_path):
     assert [item["id"] for item in unique] == ["test_1", "test_3"]
 
 
+def test_natural_theme_prompt_matches_category_aliases_and_scene_intersections():
+    catalog = [
+        puzzle(1),
+        {
+            **puzzle(2),
+            "title": "医院里的回声",
+            "tags": ["悬疑", "惊悚", "恐怖", "医院", "声音"],
+        },
+        {
+            **puzzle(3),
+            "title": "废弃旅馆",
+            "tags": ["悬疑", "惊悚", "恐怖", "旅馆", "密室"],
+        },
+    ]
+
+    horror = SELECTION.filter_puzzles_by_theme(
+        catalog, "给我一题悬疑、惊悚、恐怖的海龟汤"
+    )
+    hospital_horror = SELECTION.filter_puzzles_by_theme(catalog, "灵异医院")
+    random_choice = SELECTION.filter_puzzles_by_theme(catalog, "随机")
+
+    assert [item["id"] for item in horror] == ["test_2", "test_3"]
+    assert [item["id"] for item in hospital_horror] == ["test_2"]
+    assert [item["id"] for item in random_choice] == ["test_1", "test_2", "test_3"]
+
+
+def test_theme_prompt_can_match_an_internal_catalog_title_without_exposing_it():
+    catalog = [puzzle(1, title="旧电梯"), puzzle(2, title="纸箱")]
+
+    matched = SELECTION.filter_puzzles_by_theme(catalog, "旧电梯")
+
+    assert [item["id"] for item in matched] == ["test_1"]
+
+
 def test_failed_initializer_does_not_consume_a_puzzle(tmp_path):
     catalog = [puzzle(1), puzzle(2)]
     store = SELECTION.PuzzleSelectionStore(

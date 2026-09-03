@@ -94,6 +94,7 @@
             },
             "compat": {
               "supportsTools": true,
+              "supportsPromptCacheKey": true,
               "supportsReasoningEffort": true,
               "supportedReasoningEfforts": [
                 "low",

@@ -70,7 +70,9 @@ declares the same route as accepting text and image input; `qwen-vision` is not
 started for this overlay. Qwen3-TTS and Qwen3-ASR are started on demand by the
 loopback GPU gate. It enables bounded tool-result
 pruning, safeguard compaction, a declared 262,144-token context window, a
-twelve-message QQ group history candidate window, a small steer queue, and a
+twelve-message QQ group history candidate window with a local
+bounded prefilter, a stable per-session provider prompt-cache key, a small
+steer queue, and a
 60-minute group idle reset. It does not start `qwen-vision` and does not
 require the unused SenseNova or DeepSeek credentials.
 
@@ -142,7 +144,7 @@ limits (`0.75` GPU utilization, `2048` max model length, eager mode) are tuned
 for the host's 8 GiB GPU and can be overridden with
 `QWEN_ASR_GPU_MEMORY_UTILIZATION` and `QWEN_ASR_MAX_MODEL_LEN` in `.env`.
 
-### 群聊小游戏：海龟汤
+### 群聊小游戏：海龟汤、成语接龙和猜成语
 
 Linux Codex overlay includes a CPU-only `qqbot-game` sidecar and exposes it
 only on `127.0.0.1:18104`. The game engine is the published
@@ -150,13 +152,33 @@ only on `127.0.0.1:18104`. The game engine is the published
 so session state, yes/no judging, hints, progress, and multiplayer session
 separation come from the reusable upstream package rather than a new ad-hoc
 game implementation. The QQ interactive menu adds `小游戏`, `开始海龟汤`, and
-`结束海龟汤` buttons; text controls are `小游戏`, `开始海龟汤 [主题]`, `提示`,
-`查看进度`, and `放弃`. During a game, @mention the bot with a yes/no question.
+`结束当前游戏` buttons; text controls are `小游戏`, `开始海龟汤 [主题/提示词]`, `开始成语接龙`,
+`猜成语`, `提示`, `查看进度`, and `放弃`. During a turtle-soup game, @mention
+the bot with a yes/no question. During either text game, send a four-character
+idiom directly; the adapter consumes the message as the next move.
 
-The default mode starts immediately from a 20-puzzle local catalog. The first
+The turtle-soup player-facing payload deliberately contains only the surface
+(`汤面`), never the catalog title. This applies to start and progress replies;
+the title remains an internal field for upstream compatibility and optional theme
+matching only.
+
+The two text-first games use the pinned MIT [`China-idiom`](https://github.com/sfyc23/China-idiom)
+catalog. `成语接龙` starts with a word from the catalog, requires a new four-character
+idiom beginning with the previous word's last character, and accepts `同音` as an
+optional looser mode. `猜成语` gives the whole group one hidden four-character answer,
+allows ten shared guesses, uses `🟩/🟨/⬜` feedback, reveals one position per hint, and
+keeps a small in-memory leaderboard. The rule adapter and its upstream/license notes
+are in [`games/ai-turtle-soup/chat_games.py`](games/ai-turtle-soup/chat_games.py) and
+[`games/ai-turtle-soup/CHAT_GAMES_UPSTREAM.md`](games/ai-turtle-soup/CHAT_GAMES_UPSTREAM.md).
+
+The default mode starts immediately from a 50-puzzle local catalog. The first
 five are adapted public sample puzzles whose source project declares the
 samples [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/legalcode.zh-Hans);
-the other fifteen are original short daily scenarios added for this bot. The
+the next fifteen are original short daily scenarios and the final thirty are
+original suspense/thriller/horror scenarios tagged with all three category
+labels. A theme prompt is parsed into category aliases and catalog-scene
+intersections, so `开始海龟汤 悬疑惊悚恐怖` selects the horror slice and
+`开始海龟汤 恐怖医院` narrows it to hospital scenes. The
 attribution and field conversion are recorded in
 [`games/ai-turtle-soup/UPSTREAM.md`](games/ai-turtle-soup/UPSTREAM.md). LunaMax
 (`gpt-5.6-luna`, `reasoning_effort=max`) is used for each host judgment, so the
@@ -172,14 +194,17 @@ the TTS/ASR/ComfyUI GPU lease. Its in-memory games are cleared if the sidecar
 restarts. Local-pool selection is rotated independently for each QQ group (and
 private conversation) and persisted as opaque puzzle keys under
 `runtime/game-state`; the persisted group key is hashed. Within one group, a
-surface is not selected again until the full 20-puzzle catalog has been used.
+surface is not selected again until the full 50-puzzle catalog has been used.
 If a requested theme has been exhausted while the group still has unseen
 scenarios, the selector chooses an unseen scenario from the full catalog and
 adds a short notice instead of repeating the themed surface. Only after the
 whole catalog is exhausted does a new rotation begin, with an immediate-repeat
 cooldown where the catalog has more than one item. A theme that matches only
 one puzzle can therefore be honored only until that puzzle has been used in
-the current group rotation.
+the current group rotation. Each turtle-soup answer carries a cleaned,
+single-line preview of the current question, shown before the host verdict and
+limited to 80 characters with an ellipsis for longer questions. The preview is
+only an answer-matching aid and is not written to the puzzle-selection state.
 
 ## macOS + Docker Desktop
 

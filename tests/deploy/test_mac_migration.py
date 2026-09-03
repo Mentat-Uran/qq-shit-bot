@@ -17,6 +17,9 @@ def test_mac_compose_is_cloud_vision_only_and_keeps_windows_compose_separate():
     assert set(services) == {"qq-diagnostic-filter-init", "openclaw-gateway", "openclaw-cli", "context-recovery"}
     assert services["openclaw-gateway"]["ports"] == ["${OPENCLAW_GATEWAY_BIND_HOST:-127.0.0.1}:${OPENCLAW_GATEWAY_PORT:-18789}:18789"]
     assert services["openclaw-gateway"]["depends_on"]["qq-diagnostic-filter-init"]["condition"] == "service_completed_successfully"
+    init = services["qq-diagnostic-filter-init"]
+    assert "qqbot-context-policy-core.mjs" in " ".join(init["volumes"])
+    assert "cp /seed/qqbot-context-policy-core.mjs /opt/openclaw-local/qqbot-context-policy-core.mjs" in init["command"][0]
     assert services["openclaw-gateway"]["restart"] == "unless-stopped"
     assert services["context-recovery"]["restart"] == "unless-stopped"
     assert services["openclaw-gateway"]["build"]["dockerfile"] == "Dockerfile.mac"

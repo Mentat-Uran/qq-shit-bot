@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { buildInjectedMediaPolicySource } from "./media-policy.mjs";
+import {
+  buildInjectedQqbotContextPolicySource,
+  QQBOT_CONTEXT_POLICY_MARKER,
+} from "./qqbot-context-policy-core.mjs";
 
 const PATCH_MARKER = "/* qqbot-history-media-v1 */";
 const MEDIA_CAPABILITY_MARKER = "/* qqbot-media-capabilities-v1 */";
@@ -15,6 +19,7 @@ const TENCENT_FORWARD_RECORD_MARKER = "/* qqbot-forward-record-v1 */";
 const TENCENT_CANONICAL_MEDIA_MARKER = "/* qqbot-canonical-inbound-media-v1 */";
 const TENCENT_ATTACHMENT_NORMALIZATION_MARKER = "/* qqbot-tencent-attachment-normalization-v1 */";
 const TENCENT_IMAGE_GENERATION_PROGRESS_MARKER = "/* qqbot-image-generation-progress-v4 */";
+const TENCENT_CONTEXT_POLICY_MARKER = QQBOT_CONTEXT_POLICY_MARKER;
 const LEGACY_TENCENT_IMAGE_GENERATION_PROGRESS_MARKERS = [
   "/* qqbot-image-generation-progress-v3 */",
   "/* qqbot-image-generation-progress-v2 */",
@@ -1558,9 +1563,32 @@ function patchTencentBundle(file) {
     changed = true;
   }
 
+  // Inject this after legacy helper cleanup, which may remove text up to the
+  // next historyBuffer declaration while upgrading older bundle patches.
+  if (!source.includes(TENCENT_CONTEXT_POLICY_MARKER)) {
+    source = replaceOnce(
+      source,
+      "tencent-context-policy-injection",
+      "function historyBuffer(options = {}) {",
+      buildInjectedQqbotContextPolicySource() + "\nfunction historyBuffer(options = {}) {",
+    );
+    changed = true;
+  }
+  if (!source.includes("ctx.state.history = qqbotContextSelectRelevantGroupHistory(buffered, ctx.message.content);")) {
+    source = replaceOnce(
+      source,
+      "tencent-context-policy-selection",
+      "    ctx.state.history = buffered;",
+      "    ctx.state.history = qqbotContextSelectRelevantGroupHistory(buffered, ctx.message.content);",
+    );
+    changed = true;
+  }
+
   if (!source.includes("qqbotOverlayPrepareMedia(ctx, result, ctx.log)") ||
       !source.includes("qqbotOverlayPrepareForwardRecord(ctx, ctx.log)") ||
       !source.includes("media: qqbotOverlayBuildInboundMediaFacts(processed, voiceUrls),") ||
+      !source.includes(TENCENT_CONTEXT_POLICY_MARKER) ||
+      !source.includes("ctx.state.history = qqbotContextSelectRelevantGroupHistory(buffered, ctx.message.content);") ||
       !source.includes(TENCENT_IMAGE_GENERATION_PROGRESS_MARKER) ||
       !source.includes("qqbotOverlaySendImageGenerationProgress(envelope, account, dlog)") ||
       !source.includes("qqbotOverlayForceImageGenerationContext(ctxPayload)")) {

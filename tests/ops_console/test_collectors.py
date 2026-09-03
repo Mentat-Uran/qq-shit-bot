@@ -126,10 +126,10 @@ def test_snapshot_collects_openclaw_configuration_without_secrets():
     configuration = snapshot["runtime"]["configuration"]
 
     assert configuration["status"] == "available"
-    assert configuration["contextTokens"] == 32768
+    assert configuration["contextTokens"] is None
     assert configuration["queueMode"] == "steer"
     assert configuration["queueCap"] == 2
-    assert snapshot["sessions"]["contextTokenConfiguration"]["value"] == 32768
+    assert snapshot["sessions"]["contextTokenConfiguration"]["status"] == "unknown"
     assert ".env" not in json.dumps(snapshot)
 
 

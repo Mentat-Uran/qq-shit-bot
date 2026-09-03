@@ -1,9 +1,9 @@
 # Linux-local overlay for the existing loopback-only CLIProxyAPI.
 # The Gateway and recovery sidecar use host networking so 127.0.0.1:18317
 # remains private to the host; the Gateway itself is still loopback-bound.
-# qwen-vision is intentionally not started by start-codex.sh.  The turtle
-# soup sidecar is CPU-only; it calls the local Luna proxy and never touches
-# the TTS/ASR/ComfyUI GPU lease.
+# qwen-vision is intentionally not started by start-codex.sh.  The game
+# sidecar is CPU-only; its text games need no model call, while turtle soup
+# calls the local Luna proxy and neither path touches the TTS/ASR/ComfyUI GPU lease.
 services:
   qqbot-game:
     build:
@@ -27,6 +27,9 @@ services:
       GAME_LOCAL_PUZZLES_PATH: /opt/qq-game/sample_soups.json
       GAME_PUZZLE_SELECTION_STATE_PATH: ${GAME_PUZZLE_SELECTION_STATE_PATH:-/var/lib/qq-game/selection.json}
       GAME_PUZZLE_SELECTION_MAX_GROUPS: ${GAME_PUZZLE_SELECTION_MAX_GROUPS:-2048}
+      GAME_CHAT_CHAIN_MAX_ROUNDS: ${GAME_CHAT_CHAIN_MAX_ROUNDS:-30}
+      GAME_CHAT_WORDLE_MAX_GUESSES: ${GAME_CHAT_WORDLE_MAX_GUESSES:-10}
+      GAME_CHAT_MAX_SESSIONS: ${GAME_CHAT_MAX_SESSIONS:-2048}
       GAME_WEB_SEARCH_ENABLED: ${GAME_WEB_SEARCH_ENABLED:-true}
       GAME_WEB_SEARCH_URL: ${GAME_WEB_SEARCH_URL:-https://html.duckduckgo.com/html/}
       HTTP_PROXY: ${OPENCLAW_HTTP_PROXY:-http://127.0.0.1:7890}
@@ -160,7 +163,7 @@ services:
       - sh
       - -c
       - >-
-        node /opt/openclaw-local/web-search-patch.mjs && node /opt/openclaw-local/qqbot-history-media-patch.mjs && node /opt/openclaw-local/qqbot-interactive-features-patch.mjs && exec node
+        node /opt/openclaw-local/web-search-patch.mjs && node /opt/openclaw-local/qqbot-interactive-features-patch.mjs && node /opt/openclaw-local/qqbot-history-media-patch.mjs && exec node
         dist/index.js gateway --bind loopback --port 18789 2>&1 | tee -a
         /tmp/openclaw/gateway.log
 

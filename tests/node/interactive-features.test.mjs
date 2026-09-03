@@ -10,8 +10,11 @@ import {
   patchBundle,
 } from "../../deploy/openclaw/qqbot-interactive-features-patch.mjs";
 
-function loadInteractiveHelpers() {
+function loadInteractiveHelpers(fetchImpl = async () => {
+  throw new Error("fetch is not used by this unit test");
+}) {
   const sent = [];
+  const fetchCalls = [];
   const gateway = {
     bot: {
       sendText: async (...args) => sent.push(args),
@@ -21,16 +24,18 @@ function loadInteractiveHelpers() {
   const context = {
     AbortSignal,
     console,
-    fetch: async () => {
-      throw new Error("fetch is not used by this unit test");
+    fetch: async (...args) => {
+      fetchCalls.push(args);
+      return fetchImpl(...args);
     },
     getGateway: () => gateway,
     process: { env: { QQBOT_GAME_SERVICE_URL: "http://127.0.0.1:18104" } },
     sent,
+    fetchCalls,
   };
   const source = buildInteractiveFeaturesSource();
   vm.runInNewContext(
-    `${source}\nthis.__qqbotInteractiveTest = { command: qqbotInteractiveCommand, keyboard: qqbotInteractiveMenuKeyboard, startText: qqbotInteractiveGameStartText, readRequest: qqbotInteractiveReadRequest, applyTtsStyle: qqbotInteractiveApplyTtsStyle, hasVoiceTranscript: qqbotInteractiveHasSuccessfulVoiceTranscript, forceVoiceReply: qqbotInteractiveForceVoiceReply, handleInbound: qqbotInteractiveHandleInbound, handleInteraction: qqbotInteractiveHandleInteraction, sent };`,
+    `${source}\nthis.__qqbotInteractiveTest = { command: qqbotInteractiveCommand, keyboard: qqbotInteractiveMenuKeyboard, startText: qqbotInteractiveGameStartText, turnText: qqbotInteractiveGameTurnText, questionSummary: qqbotInteractiveQuestionSummary, statusText: qqbotInteractiveGameStatusText, chatStartText: qqbotInteractiveChatGameStartText, chatTurnText: qqbotInteractiveChatGameTurnText, questionerId: qqbotInteractiveQuestionerId, handleGameAction: qqbotInteractiveHandleGameAction, readRequest: qqbotInteractiveReadRequest, applyTtsStyle: qqbotInteractiveApplyTtsStyle, hasVoiceTranscript: qqbotInteractiveHasSuccessfulVoiceTranscript, forceVoiceReply: qqbotInteractiveForceVoiceReply, handleInbound: qqbotInteractiveHandleInbound, handleInteraction: qqbotInteractiveHandleInteraction, sent, fetchCalls };`,
     context,
   );
   return context.__qqbotInteractiveTest;
@@ -40,6 +45,11 @@ test("game commands coexist with read-aloud commands", () => {
   const helpers = loadInteractiveHelpers();
 
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("开始海龟汤 日常"))), { kind: "game-start", theme: "日常" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("开始海龟汤：悬疑惊悚恐怖"))), { kind: "game-start", theme: "悬疑惊悚恐怖" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("开始成语接龙"))), { kind: "chat-game-start", game: "idiom-chain", mode: "same" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("开始成语接龙 同音"))), { kind: "chat-game-start", game: "idiom-chain", mode: "同音" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("猜成语"))), { kind: "chat-game-start", game: "idiom-wordle", mode: "same" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("成语接龙"))), { kind: "game-help" });
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("提示"))), { kind: "game-hint" });
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("查看进度"))), { kind: "game-status" });
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("放弃"))), { kind: "game-end" });
@@ -48,7 +58,7 @@ test("game commands coexist with read-aloud commands", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("这是一个普通问题"))), { kind: "game-question", text: "这是一个普通问题" });
 });
 
-test("QQ menu exposes reading-tone and turtle-soup buttons without voice mode", () => {
+test("QQ menu exposes reading-tone and chat-game buttons without voice mode", () => {
   const helpers = loadInteractiveHelpers();
   const buttons = helpers.keyboard().content.rows.flatMap((row) => row.buttons);
   const buttonData = buttons.map((button) => button.action.data);
@@ -60,6 +70,8 @@ test("QQ menu exposes reading-tone and turtle-soup buttons without voice mode", 
     "qqbot:tts:tone:normal",
     "qqbot:tts:tone:status",
     "qqbot:game:menu",
+    "qqbot:game:idiom-chain",
+    "qqbot:game:idiom-wordle",
     "qqbot:game:start",
     "qqbot:game:end",
   ]);
@@ -81,7 +93,27 @@ test("QQ menu exposes reading-tone and turtle-soup buttons without voice mode", 
     helpers.startText({ title: "闹钟", surface: "汤面", notice: "自动回退", percent: 0 }),
     /自动回退/,
   );
-  assert.match(source, /默认题库20道；同一群本轮不重复/);
+  assert.match(
+    helpers.turnText({ reply: "是", question: "这是故意的吗？", questioner_id: "user-openid-123", percent: 12, questions_asked: 1, max_questions: 50 }),
+    /❓问题：这是故意的吗？/,
+  );
+  assert.doesNotMatch(
+    helpers.turnText({ reply: "是", question: "这是故意的吗？", questioner_id: "user-openid-123", percent: 12, questions_asked: 1, max_questions: 50 }),
+    /提问者ID|user-openid-123/,
+  );
+  assert.equal(helpers.questionSummary("第一行\n第二行"), "第一行 第二行");
+  assert.equal(Array.from(helpers.questionSummary("问题".repeat(50))).length, 80);
+  assert.equal(helpers.questionerId({ scope: "group", targetId: "group-1", actorId: "user-1" }), "user-1");
+  assert.equal(helpers.questionerId({ scope: "group", targetId: "group-1", actorId: "group-1" }), "anonymous");
+  const turtleStart = helpers.startText({ title: "会泄露答案的标题", surface: "只有汤面", notice: "", percent: 0 });
+  assert.match(turtleStart, /只有汤面/);
+  assert.doesNotMatch(turtleStart, /会泄露答案的标题|未命名题目/);
+  const turtleStatus = helpers.statusText({ title: "会泄露答案的标题", surface: "只有汤面", percent: 12, questions_asked: 1, max_questions: 50 });
+  assert.match(turtleStatus, /只有汤面/);
+  assert.doesNotMatch(turtleStatus, /会泄露答案的标题|未命名题目/);
+  assert.match(helpers.chatStartText({ game_type: "idiom-chain", mode_label: "同字接龙", current_word: "一心一意", target_char: "意", chain_length: 1, max_rounds: 30 }), /成语接龙/);
+  assert.match(helpers.chatTurnText({ game_type: "idiom-wordle", accepted: true, word: "一心一心", marks: ["correct", "correct", "present", "absent"], remaining: 9, player: "甲" }), /一🟩/);
+  assert.match(source, /默认题库50道（含30道悬疑\/惊悚\/恐怖原创题）/);
 });
 
 test("successful inbound voice transcripts force only the final text reply to native voice", () => {
@@ -113,6 +145,29 @@ test("successful inbound voice transcripts force only the final text reply to na
     JSON.parse(JSON.stringify(helpers.forceVoiceReply({ text: "普通文字" }, { kind: "final" }, { autoVoiceReply: false }))),
     { text: "普通文字" },
   );
+});
+
+test("turtle-soup answers carry the current question summary instead of a sender ID", async () => {
+  const helpers = loadInteractiveHelpers(async (url) => {
+    if (url.endsWith("/v1/chat-games/input")) {
+      return { status: 404, json: async () => ({}) };
+    }
+    return {
+      status: 200,
+      json: async () => ({ ok: true, reply: "是", question: "这是故意的吗？", questioner_id: "user-1", percent: 10 }),
+    };
+  });
+  const target = { scope: "group", targetId: "group-1", actorId: "user-1", actorName: "甲" };
+
+  await helpers.handleGameAction({ kind: "game-question", text: "这是故意的吗？" }, target, { accountId: "account-1" }, {});
+
+  assert.equal(helpers.fetchCalls.length, 2);
+  assert.deepEqual(JSON.parse(helpers.fetchCalls[1][1].body), {
+    session_id: "account-1:group:group-1",
+    text: "这是故意的吗？",
+  });
+  assert.match(helpers.sent.at(-1)[1], /❓问题：这是故意的吗？/);
+  assert.doesNotMatch(helpers.sent.at(-1)[1], /提问者ID|user-1/);
 });
 
 test("inbound handling records the successful transcript as the one-turn voice-reply intent", async () => {
@@ -191,13 +246,14 @@ function createBundleFixture(legacyMarker = "") {
 }
 
 test("bundle patch applies to fresh and legacy fixtures, then stays idempotent", () => {
-  for (const legacyMarker of ["", "/* qqbot-interactive-features-v2 */"]) {
+  for (const legacyMarker of ["", "/* qqbot-interactive-features-v2 */", "/* qqbot-interactive-features-v6 */", "/* qqbot-interactive-features-v7 */"]) {
     const { fixtureDir, fixturePath } = createBundleFixture(legacyMarker);
     try {
       assert.equal(patchBundle(fixturePath), true);
       const patched = fs.readFileSync(fixturePath, "utf8");
-      assert.match(patched, /qqbot-interactive-features-v5/);
+      assert.match(patched, /qqbot-interactive-features-v8/);
       assert.doesNotMatch(patched, /qqbot-interactive-features-v2/);
+      assert.doesNotMatch(patched, /qqbot-interactive-features-v7/);
       assert.equal((patched.match(/qqbotInteractiveHandleInbound/g) || []).length, 2);
       assert.equal((patched.match(/qqbotInteractiveForceVoiceReply/g) || []).length, 2);
       assert.equal(patchBundle(fixturePath), false);

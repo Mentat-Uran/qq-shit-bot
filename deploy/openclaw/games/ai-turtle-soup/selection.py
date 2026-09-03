@@ -81,6 +81,147 @@ def unique_puzzles(puzzles: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return unique
 
 
+# Theme prompts arrive from a short QQ command, not from a structured form.
+# Keep the aliases deliberately small and deterministic: they are used only
+# to choose from the local catalog and never become executable instructions.
+_THEME_ALIASES: dict[str, tuple[str, ...]] = {
+    "悬疑": ("悬疑", "悬案", "谜案", "推理", "侦探", "mystery", "suspense"),
+    "惊悚": ("惊悚", "惊恐", "紧张", "压迫感", "追逐", "thriller"),
+    "恐怖": (
+        "恐怖",
+        "灵异",
+        "鬼",
+        "鬼故事",
+        "亡灵",
+        "怪谈",
+        "阴森",
+        "诡异",
+        "惊吓",
+        "horror",
+        "scary",
+        "supernatural",
+    ),
+    "密室": ("密室", "封闭空间", "密闭空间"),
+    "校园": ("校园", "学校", "宿舍"),
+    "医院": ("医院", "病房", "诊所"),
+    "旅馆": ("旅馆", "酒店", "民宿"),
+    "监控": ("监控", "摄像头", "录像"),
+    "电话": ("电话", "来电", "语音"),
+    "镜子": ("镜子", "镜中"),
+    "娃娃": ("娃娃", "玩偶", "木偶"),
+    "民俗": ("民俗", "传说", "村落", "山村"),
+    "失踪": ("失踪", "消失", "离奇失联"),
+}
+_THEME_RANDOM_PHRASES = frozenset({"随机", "随机题", "随机一题", "日常物品"})
+
+
+def _compact_theme(value: Any) -> str:
+    return re.sub(
+        r"[\s，。！？、；：,:;!?（）()【】\[\]{}“”\"'‘’`]+",
+        "",
+        str(value or "").lower(),
+    )
+
+
+def normalize_theme_prompt(value: Any) -> str:
+    """Normalize a user theme prompt without treating it as an instruction.
+
+    The returned value is still suitable as a short AI-authoring preference,
+    while the selector separately extracts recognized category/scene terms.
+    """
+
+    clean = re.sub(r"[\x00-\x1f\x7f]", " ", str(value or "")).strip()
+    clean = re.sub(r"\s+", " ", clean)
+    clean = re.sub(
+        r"^(?:/?开始海龟汤)\s*(?:[:：,，]\s*)?",
+        "",
+        clean,
+        flags=re.IGNORECASE,
+    )
+    return "" if _compact_theme(clean) in {
+        _compact_theme(item) for item in _THEME_RANDOM_PHRASES
+    } else clean[:160]
+
+
+def _metadata_tokens(puzzle: dict[str, Any]) -> list[str]:
+    values = [puzzle.get("id", ""), puzzle.get("title", "")]
+    tags = puzzle.get("tags", [])
+    if isinstance(tags, (list, tuple, set)):
+        values.extend(tags)
+    tokens: list[str] = []
+    for value in values:
+        token = _compact_theme(value)
+        if len(token) >= 2:
+            tokens.append(token)
+    return tokens
+
+
+def theme_terms(
+    prompt: Any, catalog: Iterable[dict[str, Any]] = ()
+) -> list[str]:
+    """Extract canonical terms from a natural-language theme prompt.
+
+    Catalog tags and titles are included so a prompt such as ``医院恐怖``
+    becomes an intersection instead of an opaque whole-string lookup.  The
+    result contains no user identity or puzzle text beyond internal metadata.
+    """
+
+    clean = normalize_theme_prompt(prompt)
+    compact = _compact_theme(clean)
+    if not compact:
+        return []
+
+    terms: list[str] = []
+    for canonical, aliases in _THEME_ALIASES.items():
+        if any(_compact_theme(alias) in compact for alias in aliases):
+            terms.append(canonical)
+
+    for puzzle in catalog:
+        if not isinstance(puzzle, dict):
+            continue
+        for token in _metadata_tokens(puzzle):
+            if token in compact and token not in terms:
+                terms.append(token)
+
+    # If the prompt has no known term, preserve the compact phrase for the
+    # exact fallback below.  This keeps an explicit catalog id/title usable
+    # without making arbitrary prose match every puzzle.
+    return list(dict.fromkeys(terms)) or [compact]
+
+
+def puzzle_matches_theme(
+    puzzle: dict[str, Any],
+    prompt: Any,
+    *,
+    catalog: Iterable[dict[str, Any]] = (),
+) -> bool:
+    """Return whether one puzzle satisfies all recognized prompt terms."""
+
+    clean = normalize_theme_prompt(prompt)
+    if not clean:
+        return True
+    terms = theme_terms(clean, catalog)
+    metadata = _metadata_tokens(puzzle)
+    metadata_text = " ".join(metadata)
+    return all(term in metadata_text for term in terms)
+
+
+def filter_puzzles_by_theme(
+    puzzles: Iterable[dict[str, Any]], prompt: Any
+) -> list[dict[str, Any]]:
+    """Filter a catalog by a natural-language theme prompt."""
+
+    values = unique_puzzles(puzzles)
+    clean = normalize_theme_prompt(prompt)
+    if not clean:
+        return values
+    return [
+        puzzle
+        for puzzle in values
+        if puzzle_matches_theme(puzzle, clean, catalog=values)
+    ]
+
+
 def selection_scope_key(session_id: str) -> str:
     """Hash a conversation key before using it as a persisted state key."""
 

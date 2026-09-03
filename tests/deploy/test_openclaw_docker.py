@@ -45,6 +45,7 @@ def test_codex_overlay_routes_text_and_images_to_the_local_luna_proxy():
     assert media["video"]["enabled"] is False
     assert config["agents"]["defaults"]["thinkingDefault"] == "max"
     assert provider["models"][0]["params"]["reasoning_effort"] == "max"
+    assert provider["models"][0]["compat"]["supportsPromptCacheKey"] is True
     assert "max" in provider["models"][0]["compat"]["supportedReasoningEfforts"]
     assert provider["models"][0]["compat"]["reasoningEffortMap"]["max"] == "max"
     assert provider["models"][0]["contextWindow"] == 262144
@@ -95,6 +96,7 @@ def test_compose_uses_current_stable_image_and_loopback_port():
     assert "openclaw-state:/home/node/.openclaw/state" in common["volumes"]
     assert gateway["depends_on"]["qq-diagnostic-filter-init"]["condition"] == "service_completed_successfully"
     assert "qqbot-history-media-patch.mjs" in " ".join(plugin_init["volumes"])
+    assert "qqbot-context-policy-core.mjs" in " ".join(plugin_init["volumes"])
     assert "media-policy.mjs" in " ".join(plugin_init["volumes"])
     assert "diagnostic-policy.mjs" in " ".join(plugin_init["volumes"])
     assert "web-search-patch.mjs" in " ".join(plugin_init["volumes"])
@@ -104,11 +106,12 @@ def test_compose_uses_current_stable_image_and_loopback_port():
     assert "openclaw-logs:/tmp/openclaw" in " ".join(plugin_init["volumes"])
     init_command = plugin_init["command"][0]
     assert "chown -R ${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000} /home/node/.openclaw/state" in init_command
-    for name in ("media-policy.mjs", "diagnostic-policy.mjs", "context-recovery-core.mjs"):
+    for name in ("media-policy.mjs", "diagnostic-policy.mjs", "context-recovery-core.mjs", "qqbot-context-policy-core.mjs"):
         assert f"cp /seed/{name} /opt/openclaw-local/{name}" in init_command
     assert gateway["command"][:2] == ["sh", "-c"]
     assert "qqbot-history-media-patch.mjs" in gateway["command"][2]
     assert "web-search-patch.mjs" in gateway["command"][2]
+    assert gateway["command"][2].index("qqbot-interactive-features-patch.mjs") < gateway["command"][2].index("qqbot-history-media-patch.mjs")
     assert "exec node dist/index.js gateway" in gateway["command"][2]
     assert "tee -a" in gateway["command"][2]
     assert recovery["depends_on"]["openclaw-gateway"]["condition"] == "service_healthy"
@@ -197,8 +200,12 @@ def test_openclaw_config_collects_group_context_and_keeps_vision_local():
     assert "qqbot_process_preamble_suppressed" in policy
 
     history_media_patch = (DEPLOY_DIR / "qqbot-history-media-patch.mjs").read_text(encoding="utf-8")
+    context_policy_core = (DEPLOY_DIR / "qqbot-context-policy-core.mjs").read_text(encoding="utf-8")
     assert "qqbot-history-media-v1" in history_media_patch
     assert "qqbot-tencent-media-overlay-v1" in history_media_patch
+    assert "qqbot-context-policy-v1" in context_policy_core
+    assert "QQBOT_CONTEXT_POLICY_MARKER" in history_media_patch
+    assert "qqbotContextSelectRelevantGroupHistory(buffered, ctx.message.content)" in history_media_patch
     assert "qqbot-forward-record-v1" in history_media_patch
     assert "qqbotOverlayPrepareForwardRecord(ctx, ctx.log)" in history_media_patch
     assert "qqbotBuildNestedQuoteText" not in history_media_patch
@@ -427,22 +434,36 @@ def test_codex_overlay_adds_a_cpu_only_reusable_turtle_soup_sidecar():
     assert game["environment"]["GAME_LLM_JUDGE_MAX_TOKENS"] == "${GAME_LLM_JUDGE_MAX_TOKENS:-256}"
     assert game["environment"]["GAME_PUZZLE_SOURCE"] == "${GAME_PUZZLE_SOURCE:-local}"
     assert game["environment"]["GAME_PUZZLE_SELECTION_MAX_GROUPS"] == "${GAME_PUZZLE_SELECTION_MAX_GROUPS:-2048}"
+    assert game["environment"]["GAME_CHAT_CHAIN_MAX_ROUNDS"] == "${GAME_CHAT_CHAIN_MAX_ROUNDS:-30}"
+    assert game["environment"]["GAME_CHAT_WORDLE_MAX_GUESSES"] == "${GAME_CHAT_WORDLE_MAX_GUESSES:-10}"
+    assert game["environment"]["GAME_CHAT_MAX_SESSIONS"] == "${GAME_CHAT_MAX_SESSIONS:-2048}"
     assert gateway["depends_on"]["qqbot-game"]["condition"] == "service_healthy"
     assert gateway["environment"]["QQBOT_GAME_SERVICE_URL"] == "${QQBOT_GAME_SERVICE_URL:-http://127.0.0.1:18104}"
 
     game_dir = DEPLOY_DIR / "games" / "ai-turtle-soup"
     sample_puzzles = json.loads((game_dir / "sample_soups.json").read_text(encoding="utf-8"))
-    assert len(sample_puzzles) == 20
-    assert len({puzzle["id"] for puzzle in sample_puzzles}) == 20
-    assert len({puzzle["puzzle_setting"].rstrip("。！？!?") for puzzle in sample_puzzles}) == 20
+    assert len(sample_puzzles) == 50
+    assert len({puzzle["id"] for puzzle in sample_puzzles}) == 50
+    assert len({puzzle["puzzle_setting"].rstrip("。！？!?") for puzzle in sample_puzzles}) == 50
+    horror_puzzles = [
+        puzzle
+        for puzzle in sample_puzzles
+        if {"悬疑", "惊悚", "恐怖"} <= set(puzzle.get("tags", []))
+    ]
+    assert len(horror_puzzles) == 30
+    assert all("原创" in puzzle["tags"] for puzzle in horror_puzzles)
     assert all({"title", "puzzle_setting", "solution", "supplementary_info"} <= puzzle.keys() for puzzle in sample_puzzles)
     assert all(isinstance(puzzle["supplementary_info"], list) for puzzle in sample_puzzles)
     service = (game_dir / "service.py").read_text(encoding="utf-8")
+    chat_games = (game_dir / "chat_games.py").read_text(encoding="utf-8")
     selection = (game_dir / "selection.py").read_text(encoding="utf-8")
     upstream = (game_dir / "UPSTREAM.md").read_text(encoding="utf-8")
+    chat_upstream = (game_dir / "CHAT_GAMES_UPSTREAM.md").read_text(encoding="utf-8")
     interactive = (DEPLOY_DIR / "qqbot-interactive-features-patch.mjs").read_text(encoding="utf-8")
     launcher = (DEPLOY_DIR / "start-codex.sh").read_text(encoding="utf-8")
     assert "nonebot-plugin-ai-turtle-soup==1.0.9" in (game_dir / "Dockerfile").read_text(encoding="utf-8")
+    assert "china-idiom @ https://github.com/sfyc23/China-idiom/archive/78606b0294a22e798633c4469a4009b78ad60f26.tar.gz" in (game_dir / "Dockerfile").read_text(encoding="utf-8")
+    assert 'COPY chat_games.py /opt/qq-game/chat_games.py' in (game_dir / "Dockerfile").read_text(encoding="utf-8")
     assert "create_local_game" in service
     assert "_create_rotating_local_game" in service
     assert "GAME_PUZZLE_SELECTION_STATE_PATH" in service
@@ -454,6 +475,16 @@ def test_codex_overlay_adds_a_cpu_only_reusable_turtle_soup_sidecar():
     assert "selection_scope_key" in selection
     assert "为保证不重复" in selection
     assert "GAME_PUZZLE_SOURCE" in service
+    assert "filter_puzzles_by_theme" in service
+    assert '"question": question_preview' in service
+    assert "questioner_id" not in service
+    assert "若用户主题提示包含悬疑、惊悚、恐怖、灵异" in service
+    assert "/v1/chat-games/start" in service
+    assert "CHAT_GAME_MANAGER" in service
+    assert "IdiomCatalog" in chat_games
+    assert "idiom-chain" in chat_games and "idiom-wordle" in chat_games
+    assert '"title": str(puzzle' not in service
+    assert '"title"' in service  # upstream generation schema remains internal only
     assert '"local_puzzle_count"' in service
     assert '"selection_scope": "per-conversation"' in service
     assert "reasoning_effort" in service
@@ -462,11 +493,19 @@ def test_codex_overlay_adds_a_cpu_only_reusable_turtle_soup_sidecar():
     assert "DuckDuckGo" in service
     assert "haiguitang-coop" in upstream
     assert "CC BY 4.0" in upstream
+    assert "China-idiom" in chat_upstream
+    assert "noneplugin/nonebot-plugin-handle" in chat_upstream
     assert "qqbot:game:start" in interactive
+    assert "qqbot:game:idiom-chain" in interactive
+    assert "qqbot:game:idiom-wordle" in interactive
     assert "qqbot:tts:tone:gentle" in interactive
     assert "qqbot:tts:tone:status" in interactive
     assert "温柔读" in interactive
-    assert "qqbot-interactive-features-v5" in interactive
+    assert "qqbot-interactive-features-v8" in interactive
+    assert "❓问题：" in interactive
+    assert "qqbotInteractiveQuestionSummary" in interactive
+    assert "questioner_id" not in interactive
+    assert "data.title" not in interactive
     assert "qqbotInteractiveHasSuccessfulVoiceTranscript" in interactive
     assert "qqbotInteractiveForceVoiceReply" in interactive
     assert "autoVoiceReply: ctx?.state?.qqbotInteractiveVoiceReply === true" in interactive

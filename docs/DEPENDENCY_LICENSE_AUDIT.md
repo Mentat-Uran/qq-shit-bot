@@ -8,6 +8,8 @@
 | OpenClaw 镜像 | `ghcr.io/openclaw/openclaw:2026.8.2` | Docker 内 Gateway/CLI | 升级前须按上游发布物重新核对许可证和镜像摘要 |
 | `@tencent-connect/openclaw-qqbot` | `@tencent-connect/openclaw-qqbot@2.0.3`，安装命令使用 `--pin` | Docker 内官方 QQBot 2.x 适配器 | 升级前须按 npm 包元数据重新核对许可证 |
 | `@openclaw/duckduckgo-plugin` | `@openclaw/duckduckgo-plugin@2026.8.2`，安装命令使用 `--pin` | Docker 内无密钥 DuckDuckGo 搜索适配器 | 升级前须按 npm 包元数据重新核对许可证 |
+| `China-idiom` | GitHub 提交 `78606b0294a22e798633c4469a4009b78ad60f26` 的源码归档 | `qqbot-game` 内的四字成语校验、接龙候选和释义 | 上游仓库声明 MIT；更换提交前须重新核对许可证与数据来源 |
+| `nonebot-plugin-handle`（规则参考） | 参考提交 `61ba1243d15e5f7b173146b8c6f2d122c51d69a7`，不作为运行依赖 | 猜成语的重复字计分规则参考 | 上游仓库声明 MIT；本项目未复制其图片渲染和 NoneBot matcher |
 | Ollama | `ollama/ollama:0.32.5` | 仅提供私有 Qwen 图片路径 | 升级前须按镜像和 Ollama 上游元数据重新核对许可证 |
 | Qwen 模型 | `qwen2.5vl:7b` | 私有 Compose 网络、按需加载 | 模型权重许可和使用范围不由本仓库 MIT 文本覆盖，使用者需单独核对 |
 | 部署测试工具 | `tests/requirements-deploy.txt` 中的 pytest/PyYAML 精确版本 | 仅 CI/本地验收，不进入运行镜像 | 各包许可证仍以其发布元数据为准，升级时重新核对 |
