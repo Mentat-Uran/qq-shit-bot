@@ -1,0 +1,6 @@
+# NapCat and the adapter use the same host-local reverse WebSocket endpoint in
+# the Linux Codex overlay. The WebUI remains loopback-only.
+services:
+  napcat:
+    network_mode: host
+    ports: !reset []

@@ -1,0 +1,19 @@
+# Optional NapCatQQ container. Login and the WebSocket client settings are
+# intentionally completed in NapCat's WebUI so no QQ account secret or QR
+# session material is put in Compose or Git.
+services:
+  napcat:
+    image: ${NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}
+    profiles: ["napcat"]
+    restart: unless-stopped
+    environment:
+      NAPCAT_UID: ${NAPCAT_UID:-1000}
+      NAPCAT_GID: ${NAPCAT_GID:-1000}
+    volumes:
+      - ./runtime/napcat/config:/app/napcat/config
+      - ./runtime/napcat/qq:/app/.config/QQ
+    depends_on:
+      onebot-adapter:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${NAPCAT_WEBUI_PORT:-6099}:6099"

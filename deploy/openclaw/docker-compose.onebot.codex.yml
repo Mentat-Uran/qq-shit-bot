@@ -1,0 +1,13 @@
+# Linux Codex overlay for the optional OneBot adapter. The Gateway, game
+# sidecar, and adapter share host networking so the existing loopback-only
+# services remain reachable without publishing them on a bridge network.
+services:
+  onebot-adapter:
+    network_mode: host
+    ports: !reset []
+    environment:
+      ONEBOT_WS_HOST: ${ONEBOT_CODEX_WS_HOST:-127.0.0.1}
+      ONEBOT_GATEWAY_URL: ${ONEBOT_CODEX_GATEWAY_URL:-http://127.0.0.1:18789}
+      ONEBOT_GAME_SERVICE_URL: ${ONEBOT_CODEX_GAME_SERVICE_URL:-http://127.0.0.1:18104}
+      ONEBOT_ASR_URL: ${ONEBOT_CODEX_ASR_URL:-http://127.0.0.1:18102/v1}
+      ONEBOT_TTS_URL: ${ONEBOT_CODEX_TTS_URL:-http://127.0.0.1:18102/v1}

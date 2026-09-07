@@ -19,6 +19,47 @@ QQBOT_ALLOWED_MEMBER_OPENID|optional|
 QQBOT_HOME_CHANNEL|optional|
 CODEX_PROXY_BASE_URL|required|replace-with-codex-proxy-base-url
 CODEX_PROXY_TOKEN|required|replace-with-codex-proxy-token
+ONEBOT_ACCESS_TOKEN|optional|replace-with-onebot-access-token
+ONEBOT_SELF_ID|optional|
+ONEBOT_WS_HOST|optional|
+ONEBOT_CODEX_WS_HOST|optional|
+ONEBOT_CODEX_GATEWAY_URL|optional|
+ONEBOT_CODEX_GAME_SERVICE_URL|optional|
+ONEBOT_CODEX_ASR_URL|optional|
+ONEBOT_CODEX_TTS_URL|optional|
+ONEBOT_WS_PORT|optional|
+ONEBOT_WS_PATH|optional|
+ONEBOT_ALLOWED_GROUP_IDS|optional|replace-with-group-id
+ONEBOT_ALLOWED_USER_IDS|optional|
+ONEBOT_ADMIN_USER_IDS|optional|replace-with-admin-qq
+ONEBOT_ALLOW_ALL_GROUPS|optional|
+ONEBOT_DM_POLICY|optional|
+ONEBOT_GROUP_REQUIRE_MENTION|optional|
+ONEBOT_STRICT_GROUP_MENTION|optional|
+ONEBOT_COMMANDS_BYPASS_MENTION|optional|
+ONEBOT_GATEWAY_URL|optional|
+ONEBOT_GATEWAY_MODEL|optional|
+ONEBOT_GATEWAY_MESSAGE_CHANNEL|optional|
+ONEBOT_GATEWAY_TIMEOUT_MS|optional|
+ONEBOT_INBOUND_DEBOUNCE_MS|optional|
+ONEBOT_QUEUE_CAP|optional|
+ONEBOT_GAME_SERVICE_URL|optional|
+ONEBOT_ASR_URL|optional|
+ONEBOT_ASR_MODEL|optional|
+ONEBOT_TTS_URL|optional|
+ONEBOT_TTS_MODEL|optional|
+ONEBOT_TTS_VOICE|optional|
+ONEBOT_AUTO_VOICE_REPLY|optional|
+ONEBOT_AUDIO_MAX_BYTES|optional|
+ONEBOT_IMAGE_ALLOWED_HOSTS|optional|
+ONEBOT_IMAGE_MAX_BYTES|optional|
+ONEBOT_REPLY_TO_MESSAGE|optional|
+ONEBOT_TEXT_CHUNK_SIZE|optional|
+ONEBOT_MEDIA_ROOTS|optional|
+NAPCAT_IMAGE|optional|
+NAPCAT_UID|optional|
+NAPCAT_GID|optional|
+NAPCAT_WEBUI_PORT|optional|
 
 # Legacy aliases are migrated only when the canonical value is empty or a placeholder.
 # alias->canonical

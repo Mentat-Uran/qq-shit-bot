@@ -184,16 +184,49 @@ Their availability must not be reported as proof that the Codex route or QQ
 delivery works. The game and voice state is local runtime state and remains
 outside Git.
 
+## NapCatQQ + OneBot 11 reverse WebSocket
+
+The optional ordinary-QQ path is documented in
+[`../../docs/ONEBOT_NAPCAT.md`](../../docs/ONEBOT_NAPCAT.md). It adds the
+independent `onebot-adapter` service through `docker-compose.onebot.yml` and
+the optional `napcat` Compose profile through `docker-compose.napcat.yml`;
+the official `openclaw-qqbot` adapter remains available in parallel. The
+Linux Codex overlay uses `docker-compose.onebot.codex.yml` and
+`docker-compose.napcat.codex.yml` to keep the adapter, Gateway, game sidecar,
+and NapCat on the existing loopback path.
+
+On Linux, after filling the OneBot access token, exact group allowlist, and
+administrator QQ values in the ignored `.env`, use:
+
+```bash
+cd deploy/openclaw
+./start-onebot.sh
+# Add --with-napcat to start the optional NapCat container as well.
+```
+
+Login, QR/device verification, and the NapCat WebSocket-client configuration
+are manual WebUI operations. The adapter reuses the current runtime rules,
+Codex image route, bounded group context, all text games, quoted/@ messages,
+and the configured ASR/TTS path, while its outbound messages use OneBot
+`send_*_msg` actions rather than the Tencent SDK.
+
 To inspect or stop the overlay, reuse the complete file set:
 
 ```bash
 docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.codex.yml \
+  -f docker-compose.onebot.yml -f docker-compose.onebot.codex.yml \
   ps
 docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.codex.yml \
+  -f docker-compose.onebot.yml -f docker-compose.onebot.codex.yml \
   down
 ```
+
+If `--with-napcat` was used, append `-f docker-compose.napcat.yml
+-f docker-compose.napcat.codex.yml` to both commands and add `--profile napcat`
+when inspecting the profile. `down` keeps the NapCat QQ data directory; it does
+not delete volumes or the ignored runtime data.
 
 ## QQ media, context, and voice boundaries
 
