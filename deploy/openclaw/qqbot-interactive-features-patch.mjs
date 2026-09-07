@@ -2,8 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const INTERACTIVE_FEATURES_MARKER = "/* qqbot-interactive-features-v8 */";
+const INTERACTIVE_FEATURES_MARKER = "/* qqbot-interactive-features-v9 */";
 const LEGACY_INTERACTIVE_FEATURES_MARKERS = [
+  "/* qqbot-interactive-features-v8 */",
   "/* qqbot-interactive-features-v7 */",
   "/* qqbot-interactive-features-v6 */",
   "/* qqbot-interactive-features-v5 */",
@@ -54,7 +55,7 @@ function replaceOnce(source, label, before, after) {
 
 function buildInteractiveFeaturesSource() {
   return String.raw`
-/* qqbot-interactive-features-v8 */
+/* qqbot-interactive-features-v9 */
 const qqbotInteractiveTtsStyles = new Map();
 const qqbotInteractiveTtsStyleNames = new Map([
   ["gentle", "温柔"],
@@ -196,7 +197,9 @@ async function qqbotInteractiveSendMenu(target, account, log4) {
     "朗读语调：当前「" + style + "」",
     "点击下面按钮切换语调；影响之后的显式朗读和语音入站回复，普通文字消息仍然是文字。",
     "单次朗读：读：内容 / 温柔读：内容 / 播音读：内容 / 戏剧读：内容",
-    "小游戏：海龟汤、成语接龙、猜成语（点击下方按钮或发送“小游戏”查看玩法）"
+    "",
+    "🎮 小游戏　📚 行测/答题　🤖 AI功能　🧰 其他工具",
+    "点击分类查看详情；也可以直接发送游戏名或“小游戏 1”启动。"
   ].join("\n");
   try {
     await gateway.bot.sendTextWithKeyboard(target, content, qqbotInteractiveMenuKeyboard());
@@ -235,14 +238,14 @@ function qqbotInteractiveMenuKeyboard() {
         {
           buttons: [
             qqbotInteractiveButton("tts-tone-status", "📊 当前语调", "已查询", "qqbot:tts:tone:status", 0),
-            qqbotInteractiveButton("game-menu", "🎮 小游戏", "小游戏", "qqbot:game:menu", 1),
-            qqbotInteractiveButton("game-idiom-chain", "🔗 成语接龙", "已开始", "qqbot:game:idiom-chain", 1)
+            qqbotInteractiveButton("menu-games", "🎮 小游戏", "小游戏", "qqbot:menu:games", 1),
+            qqbotInteractiveButton("menu-exam", "📚 行测答题", "行测答题", "qqbot:menu:exam", 1)
           ]
         },
         {
           buttons: [
-            qqbotInteractiveButton("game-idiom-wordle", "🟩 猜成语", "已开始", "qqbot:game:idiom-wordle", 1),
-            qqbotInteractiveButton("game-start", "🐢 开始海龟汤", "已开始", "qqbot:game:start", 1),
+            qqbotInteractiveButton("menu-ai", "🤖 AI玩法", "AI玩法", "qqbot:menu:ai", 1),
+            qqbotInteractiveButton("menu-other", "🧰 其他工具", "其他工具", "qqbot:menu:other", 0),
             qqbotInteractiveButton("game-end", "⏹ 结束当前游戏", "已结束", "qqbot:game:end", 0)
           ]
         }
@@ -255,40 +258,104 @@ function qqbotInteractiveNormalizeCommand(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
-function qqbotInteractiveGameHelp() {
-  return [
-    "🎮 群聊小游戏",
-    "🐢 海龟汤：AI 主持的情境推理，适合多人一起问。",
-    "开始：开始海龟汤 或 开始海龟汤 主题",
-    "提问：@我 这是故意的吗？（尽量问能回答是/不是的问题）",
-    "控制：@我 提示 / 查看进度 / 放弃",
-    "默认题库50道（含30道悬疑/惊悚/恐怖原创题）；同一群本轮不重复，主题题抽完会自动从未出题面补选。",
-    "主题示例：开始海龟汤 悬疑惊悚恐怖；开始海龟汤 恐怖医院。每次回答会先显示当前问题摘要。",
-    "题目会参考公开资料，再整理成适合群聊的一局。",
-    "",
-    "🔗 成语接龙：多人直接发四字成语，机器人判定接龙并记分。",
-    "开始：开始成语接龙（默认同字）；开始成语接龙 同音",
-    "提示：提示；状态：查看进度；结束：放弃。",
-    "",
-    "🟩 猜成语：群里共享一题，直接发四字词语，最多10次。",
-    "开始：猜成语；提示会揭开一个位置，绿色=位置对，黄色=字对但位置错。",
-    "小游戏每群同一时间只进行一局；重启侧车会清空进行中的文字游戏。"
-  ].join("\n");
+const qqbotInteractiveGameEntries = [
+  ["number-bomb", "数字炸弹", "规则", ["炸弹", "数字雷"]],
+  ["twenty-four", "24点", "规则", ["24", "二十四点"]],
+  ["flower-order", "飞花令", "规则", []],
+  ["poetry-chain", "诗词接龙", "规则", ["诗句接龙"]],
+  ["clue-auction", "线索竞拍", "规则", ["竞拍"]],
+  ["idiom-chain", "成语接龙", "题库", ["接龙"]],
+  ["idiom-wordle", "猜成语", "题库", ["成语猜谜"]],
+  ["guess-person", "猜人物", "题库", ["人物"]],
+  ["guess-work", "猜作品", "题库", ["猜电影", "猜动漫", "猜游戏", "作品"]],
+  ["knowledge", "知识抢答", "题库", ["抢答"]],
+  ["true-false", "真假判断", "题库", ["真假", "判断题"]],
+  ["find-different", "找不同", "题库", ["找茬"]],
+  ["word-classification", "词语分类", "题库", ["分类"]],
+  ["one-line-reasoning", "一句话推理", "题库", ["推理"]],
+  ["brain-teaser", "脑筋急转弯", "题库", ["脑筋"]],
+  ["riddle", "谜语", "题库", ["猜谜"]],
+  ["sorting", "排序题", "题库", ["排序"]],
+  ["exam", "行测抢答", "行测", ["行测", "行测刷题", "公务员刷题"]]
+];
+
+function qqbotInteractiveGameEntry(value) {
+  const normalized = qqbotInteractiveNormalizeCommand(value);
+  return qqbotInteractiveGameEntries.find((entry) =>
+    normalized === entry[1] || entry[3].includes(normalized) || normalized === entry[0]
+  ) || null;
+}
+
+function qqbotInteractiveGameCategoryEntries(category) {
+  return qqbotInteractiveGameEntries.filter((entry) => entry[2] === category);
+}
+
+function qqbotInteractiveGameHelp(category = "", page = 1) {
+  const normalizedCategory = ["规则", "题库", "行测", "exam", "rules", "quiz"].includes(category) ? category : "";
+  if (!normalizedCategory) {
+    return [
+      "🎮 群聊玩法目录",
+      "直接发送游戏名启动；也可以发送“小游戏 1”按编号启动。",
+      "",
+      "规则 / 题库型：数字炸弹、24点、飞花令、诗词接龙、线索竞拍",
+      "题库型：成语接龙、猜成语、猜人物、猜作品、知识抢答、真假判断、找不同、词语分类、一句话推理、脑筋急转弯、谜语、排序题",
+      "行测 / 答题：行测 或 行测 常识（支持五类题型）",
+      "",
+      "输入：小游戏 规则 / 小游戏 题库 / 行测帮助 查看分组详情。",
+      "通用控制：提示、查看进度、答案/解析、下一题、放弃。",
+      "同一群同一时间只保留一局；不需要私聊、匿名身份或私密发牌。"
+    ].join("\n");
+  }
+  const key = { exam: "行测", rules: "规则", quiz: "题库" }[normalizedCategory] || normalizedCategory;
+  const values = key === "行测" ? [["exam", "行测抢答", "支持随机或指定常识/言语/判断/数量/资料"]] : qqbotInteractiveGameCategoryEntries(key);
+  const size = 6;
+  const pages = Math.max(1, Math.ceil(values.length / size));
+  const selectedPage = Math.max(1, Math.min(Number(page) || 1, pages));
+  const start = (selectedPage - 1) * size;
+  const lines = ["🎮 " + key + "玩法（" + selectedPage + "/" + pages + "）"];
+  values.slice(start, start + size).forEach((entry, index) => {
+    const number = qqbotInteractiveGameEntries.findIndex((item) => item[0] === entry[0]) + 1;
+    const label = entry[1];
+    const note = entry[2] || "直接发送名称启动";
+    lines.push(number + ". " + label + "：" + note + "（“" + label + "”启动）");
+  });
+  const firstGlobalNumber = values.length ? qqbotInteractiveGameEntries.findIndex((item) => item[0] === values[start][0]) + 1 : 0;
+  const pageCommand = key === "行测" ? "小游戏 行测 " + (selectedPage + 1) + "页" : "小游戏 " + key + " " + (selectedPage + 1) + "页";
+  const nextPage = selectedPage < pages ? "下一页：" + pageCommand : "已是最后一页";
+  lines.push("", "编号启动：小游戏 " + firstGlobalNumber + "；" + nextPage, "控制：提示 / 查看进度 / 答案或解析 / 下一题 / 放弃");
+  return lines.join("\n");
 }
 
 function qqbotInteractiveCommand(value) {
   const normalized = qqbotInteractiveNormalizeCommand(value);
   if (normalized === "菜单" || normalized === "功能菜单" || normalized === "功能" || normalized === "/menu") return { kind: "menu" };
-  if (normalized === "游戏" || normalized === "小游戏" || normalized === "海龟汤" || normalized === "海龟汤帮助" || normalized === "成语接龙" || normalized === "接龙帮助" || normalized === "猜成语帮助") return { kind: "game-help" };
   if (/^(?:(?:温柔|播音|戏剧|正常)\s*)?读(?:\s|[:：]|$)/.test(normalized)) return null;
+  if (normalized === "小游戏" || normalized === "游戏" || normalized === "海龟汤" || normalized === "海龟汤帮助" || normalized === "成语接龙帮助" || normalized === "接龙帮助" || normalized === "猜成语帮助") return { kind: "game-help" };
+  if (/^(?:小游戏|游戏)(?:\s+|第)?(?:第)?([0-9]+)$/.test(normalized)) {
+    const number = Number(normalized.match(/([0-9]+)$/)?.[1] || 0);
+    const entry = qqbotInteractiveGameEntries[number - 1];
+    return entry ? { kind: "chat-game-start", game: entry[0], mode: "same" } : { kind: "game-help" };
+  }
+  const categoryPage = /^(?:小游戏|游戏)\s*(规则|题库|行测)\s*(?:第)?([0-9]+)页$/.exec(normalized);
+  if (categoryPage) return { kind: "game-help", category: categoryPage[1], page: Number(categoryPage[2]) };
+  const page = /^(?:小游戏|游戏)(?:\s+)?(?:第)?([0-9]+)页$/.exec(normalized);
+  if (page) return { kind: "game-help", category: "", page: Number(page[1]) };
+  if (/^(?:小游戏|游戏)\s*(规则|题库|行测)$/.test(normalized)) return { kind: "game-help", category: normalized.match(/(规则|题库|行测)$/)[1] };
+  if (normalized === "行测帮助" || normalized === "行测题库" || normalized === "行测答题") return { kind: "game-help", category: "行测" };
+  const examStart = /^(?:\/?行测|开始行测)(?:\s+|[:：])?(常识判断|常识|言语理解|言语|判断推理|判断|数量关系|数量|资料分析|资料)?$/.exec(normalized);
+  if (examStart) return { kind: "chat-game-start", game: "exam", category: examStart[1] || "", mode: "same" };
   const start = /^(?:\/)?开始海龟汤(?:\s*(?:[:：,，]\s*|\s+)(.+))?$/.exec(normalized);
   if (start) return { kind: "game-start", theme: start[1] || "" };
   const chainStart = /^(?:\/)?(?:开始)?成语接龙(?:\s+(同字|同音|谐音))?$/.exec(normalized);
-  if (chainStart && normalized !== "成语接龙") return { kind: "chat-game-start", game: "idiom-chain", mode: chainStart[1] || "same" };
+  if (chainStart) return { kind: "chat-game-start", game: "idiom-chain", mode: chainStart[1] || "same" };
   if (normalized === "猜成语" || normalized === "开始猜成语" || normalized === "/猜成语") return { kind: "chat-game-start", game: "idiom-wordle", mode: "same" };
+  const entry = qqbotInteractiveGameEntry(normalized.replace(/^开始/, ""));
+  if (entry) return { kind: "chat-game-start", game: entry[0], mode: "same" };
   if (normalized === "提示" || normalized === "给个提示" || normalized === "来个提示" || normalized === "海龟汤提示" || normalized === "猜成语提示" || normalized === "接龙提示") return { kind: "game-hint" };
-  if (normalized === "查看进度" || normalized === "进度" || normalized === "当前进度" || normalized === "看进度") return { kind: "game-status" };
-  if (normalized === "放弃" || normalized === "我放弃" || normalized === "不玩了" || normalized === "公布答案" || normalized === "看答案" || normalized === "放弃游戏" || normalized === "海龟汤结束" || normalized === "结束成语接龙" || normalized === "结束猜成语") return { kind: "game-end" };
+  if (normalized === "答案" || normalized === "解析" || normalized === "答案解析" || normalized === "行测答案" || normalized === "行测解析") return { kind: "game-answer" };
+  if (normalized === "下一题" || normalized === "下一局" || normalized === "再来一题") return { kind: "game-question", text: normalized };
+  if (normalized === "查看进度" || normalized === "进度" || normalized === "当前进度" || normalized === "看进度" || normalized === "统计" || normalized === "排行榜") return { kind: "game-status" };
+  if (normalized === "放弃" || normalized === "我放弃" || normalized === "不玩了" || normalized === "放弃游戏" || normalized === "海龟汤结束" || normalized === "结束成语接龙" || normalized === "结束猜成语") return { kind: "game-end" };
   if (!normalized) return null;
   return { kind: "game-question", text: normalized };
 }
@@ -377,6 +444,20 @@ function qqbotInteractiveLeaderboard(data) {
 }
 
 function qqbotInteractiveChatGameStartText(data) {
+  if (data?.game_type && data.game_type !== "idiom-chain" && data.game_type !== "idiom-wordle") {
+    return [
+      "🎮 " + String(data.title || "小游戏") + "开始",
+      "",
+      "📌 题面：",
+      String(data.prompt || ""),
+      "",
+      String(data.instructions || "直接发送答案。"),
+      "提示：提示；状态：查看进度；答案/解析：公布答案；结束：放弃。",
+      data.exam_category ? "📚 题型：" + String(data.exam_category) : "",
+      "🏆 当前排行榜：",
+      qqbotInteractiveLeaderboard(data)
+    ].join("\n");
+  }
   if (data?.game_type === "idiom-chain") {
     return [
       "🔗 成语接龙开始（" + String(data.mode_label || "同字接龙") + "）",
@@ -402,6 +483,21 @@ function qqbotInteractiveWordleRow(guess) {
 }
 
 function qqbotInteractiveChatGameTurnText(data) {
+  if (data?.game_type && data.game_type !== "idiom-chain" && data.game_type !== "idiom-wordle") {
+    const lines = [];
+    if (data.correct === true) lines.push("✅ " + String(data.player || "群友") + " 答对了！");
+    else if (data.correct === false) lines.push("❌ " + String(data.message || "答案不对，再试试。"));
+    else if (data.accepted === false) lines.push("⚠️ " + String(data.message || "这条输入不能算答案。"));
+    else if (data.message) lines.push("ℹ️ " + String(data.message));
+    if (data.hint) lines.push("💡 " + String(data.hint));
+    if (data.answer !== undefined) lines.push("📖 答案：" + String(data.answer));
+    if (data.explanation) lines.push("📝 解析：" + String(data.explanation));
+    if (data.active !== false && data.prompt) lines.push("", "📌 题面：", String(data.prompt));
+    if (data.instructions && data.active !== false) lines.push("", String(data.instructions));
+    if (data.correct === true || data.revealed === true) lines.push("", "发送“下一题”继续；状态：查看进度；结束：放弃。");
+    if (data.leaderboard) lines.push("", "🏆 排行榜：", qqbotInteractiveLeaderboard(data));
+    return lines.filter((line) => line !== "").join("\n");
+  }
   if (data?.game_type === "idiom-chain") {
     const lines = [
       data.accepted === false ? "⚠️ " + String(data.message || "这条不能接。") : "✅ " + String(data.player || "群友") + " 接龙成功：「" + String(data.word || "") + "」",
@@ -437,6 +533,16 @@ function qqbotInteractiveChatGameTurnText(data) {
 }
 
 function qqbotInteractiveChatGameStatusText(data) {
+  if (data?.game_type && data.game_type !== "idiom-chain" && data.game_type !== "idiom-wordle") {
+    return [
+      "📈 " + String(data.title || "小游戏") + "进度",
+      data.exam_category ? "📚 题型：" + String(data.exam_category) : "",
+      "🔢 第" + String(data.round ?? 1) + "题" + (data.awaiting_next ? "（已结束）" : "（进行中）"),
+      "📌 题面：" + String(data.prompt || ""),
+      "🏆 排行榜：",
+      qqbotInteractiveLeaderboard(data)
+    ].join("\n");
+  }
   if (data?.game_type === "idiom-chain") {
     const chain = Array.isArray(data.chain) ? data.chain : [];
     return [
@@ -461,6 +567,13 @@ function qqbotInteractiveChatGameStatusText(data) {
 }
 
 function qqbotInteractiveChatGameHintText(data) {
+  if (data?.game_type && data.game_type !== "idiom-chain" && data.game_type !== "idiom-wordle") {
+    const lines = ["💡 " + String(data.message || "提示")];
+    if (data.hint) lines.push(String(data.hint));
+    if (data.answer !== undefined) lines.push("📖 答案：" + String(data.answer));
+    if (data.explanation) lines.push("📝 解析：" + String(data.explanation));
+    return lines.join("\n");
+  }
   if (data?.game_type === "idiom-chain") {
     const words = Array.isArray(data.hint) ? data.hint : [];
     return words.length
@@ -472,6 +585,15 @@ function qqbotInteractiveChatGameHintText(data) {
 }
 
 function qqbotInteractiveChatGameEndText(data) {
+  if (data?.game_type && data.game_type !== "idiom-chain" && data.game_type !== "idiom-wordle") {
+    return [
+      "⏹ " + String(data.title || "小游戏") + "已结束",
+      data.answer !== undefined ? "📖 答案：" + String(data.answer) : "",
+      data.explanation ? "📝 解析：" + String(data.explanation) : "",
+      "🏆 排行榜：",
+      qqbotInteractiveLeaderboard(data)
+    ].join("\n");
+  }
   if (data?.game_type === "idiom-chain") {
     return [
       "⏹ 成语接龙已结束",
@@ -508,10 +630,11 @@ async function qqbotInteractiveHandleGameAction(action, target, account, log4) {
   const sessionId = qqbotInteractiveConversationKey(account.accountId, target.scope, target.targetId);
   const payload = { session_id: sessionId };
   let request;
+  let renderKind = action.kind;
   if (action.kind === "chat-game-start") {
     request = await qqbotInteractiveGameRequest(
       "/v1/chat-games/start",
-      { ...payload, ...qqbotInteractiveChatPlayerPayload(target), game: action.game, mode: action.mode || "same" },
+      { ...payload, ...qqbotInteractiveChatPlayerPayload(target), game: action.game, mode: action.mode || "same", category: action.category || "" },
       log4,
       30000,
     );
@@ -532,11 +655,17 @@ async function qqbotInteractiveHandleGameAction(action, target, account, log4) {
     return true;
   }
   if (action.kind === "game-help") {
-    return await qqbotInteractiveSendText(target, account, qqbotInteractiveGameHelp(), log4);
+    return await qqbotInteractiveSendText(target, account, qqbotInteractiveGameHelp(action.category || "", action.page || 1), log4);
   }
   if (action.kind === "game-hint") {
     request = await qqbotInteractiveGameRequest("/v1/chat-games/hint", payload, log4, 30000);
     if (request?.status === 404) request = await qqbotInteractiveGameRequest("/v1/games/hint", payload, log4, 30000);
+  } else if (action.kind === "game-answer") {
+    request = await qqbotInteractiveGameRequest("/v1/chat-games/answer", payload, log4, 30000);
+    if (request?.status === 404) {
+      request = await qqbotInteractiveGameRequest("/v1/games/end", payload, log4, 30000);
+      renderKind = "game-end";
+    }
   } else if (action.kind === "game-status") {
     request = await qqbotInteractiveGameRequest("/v1/chat-games/status", payload, log4, 30000);
     if (request?.status === 404) request = await qqbotInteractiveGameRequest("/v1/games/status", payload, log4, 30000);
@@ -550,7 +679,7 @@ async function qqbotInteractiveHandleGameAction(action, target, account, log4) {
   }
   else return false;
 
-  if (!request) return action.kind !== "game-question";
+  if (!request) return action.kind !== "game-question" && action.kind !== "game-answer";
   if (request.status === 404) return false;
   if (request.status !== 200 || !request.data) {
     await qqbotInteractiveSendText(target, account, "海龟汤主持服务暂时不可用，请稍后再试。", log4);
@@ -558,17 +687,19 @@ async function qqbotInteractiveHandleGameAction(action, target, account, log4) {
   }
   const data = request.data;
   if (data.game_type) {
-    if (action.kind === "game-hint") return await qqbotInteractiveSendText(target, account, qqbotInteractiveChatGameHintText(data), log4);
-    if (action.kind === "game-status") return await qqbotInteractiveSendText(target, account, data.active ? qqbotInteractiveChatGameStatusText(data) : "当前没有进行中的文字小游戏。", log4);
-    if (action.kind === "game-end") return await qqbotInteractiveSendText(target, account, qqbotInteractiveChatGameEndText(data), log4);
+    const legacyChatGame = data.game_type === "idiom-chain" || data.game_type === "idiom-wordle";
+    if (renderKind === "game-hint" || (renderKind === "game-answer" && !legacyChatGame)) return await qqbotInteractiveSendText(target, account, qqbotInteractiveChatGameHintText(data), log4);
+    if (renderKind === "game-answer" && legacyChatGame) return await qqbotInteractiveSendText(target, account, qqbotInteractiveChatGameEndText(data), log4);
+    if (renderKind === "game-status") return await qqbotInteractiveSendText(target, account, data.active ? qqbotInteractiveChatGameStatusText(data) : "当前没有进行中的文字小游戏。", log4);
+    if (renderKind === "game-end") return await qqbotInteractiveSendText(target, account, qqbotInteractiveChatGameEndText(data), log4);
     return await qqbotInteractiveSendText(target, account, qqbotInteractiveChatGameTurnText(data), log4);
   }
-  if (action.kind === "game-hint") {
+  if (renderKind === "game-hint") {
     const hint = data.hint ? "💡 提示 [" + String(data.current ?? 0) + "/" + String(data.total ?? 0) + "]：\n" + String(data.hint) : String(data.message || "暂无可用提示。");
     return await qqbotInteractiveSendText(target, account, hint, log4);
   }
-  if (action.kind === "game-status") return await qqbotInteractiveSendText(target, account, data.active ? qqbotInteractiveGameStatusText(data) : "当前没有进行中的海龟汤。", log4);
-  if (action.kind === "game-end") return await qqbotInteractiveSendText(target, account, qqbotInteractiveGameEndText(data), log4);
+  if (renderKind === "game-status") return await qqbotInteractiveSendText(target, account, data.active ? qqbotInteractiveGameStatusText(data) : "当前没有进行中的海龟汤。", log4);
+  if (renderKind === "game-end" || renderKind === "game-answer") return await qqbotInteractiveSendText(target, account, qqbotInteractiveGameEndText(data), log4);
   return await qqbotInteractiveSendText(
     target,
     account,
@@ -612,6 +743,10 @@ async function qqbotInteractiveHandleInteraction(event, account, log4, acknowled
     "qqbot:tts:tone:dramatic",
     "qqbot:tts:tone:normal",
     "qqbot:tts:tone:status",
+    "qqbot:menu:games",
+    "qqbot:menu:exam",
+    "qqbot:menu:ai",
+    "qqbot:menu:other",
     "qqbot:game:menu",
     "qqbot:game:idiom-chain",
     "qqbot:game:idiom-wordle",
@@ -648,8 +783,30 @@ async function qqbotInteractiveHandleInteraction(event, account, log4, acknowled
     );
     return true;
   }
-  if (buttonData === "qqbot:game:menu") {
+  if (buttonData === "qqbot:menu:games" || buttonData === "qqbot:game:menu") {
     await qqbotInteractiveSendText(target, account, qqbotInteractiveGameHelp(), log4);
+    return true;
+  }
+  if (buttonData === "qqbot:menu:exam") {
+    await qqbotInteractiveSendText(target, account, qqbotInteractiveGameHelp("行测"), log4);
+    return true;
+  }
+  if (buttonData === "qqbot:menu:ai") {
+    await qqbotInteractiveSendText(
+      target,
+      account,
+      "🤖 AI增强\n海龟汤：开始海龟汤，可附带悬疑/场景主题\n通用问答：直接 @我 提问\n\n海龟汤的出题和主持使用现有模型；行测题干、答案、解析和基础判分直接来自题库，不依赖模型。",
+      log4,
+    );
+    return true;
+  }
+  if (buttonData === "qqbot:menu:other") {
+    await qqbotInteractiveSendText(
+      target,
+      account,
+      "🧰 其他工具\n菜单：查看一级菜单\n读：内容：单次朗读\n提示 / 查看进度 / 答案 / 下一题 / 放弃：当前游戏控制",
+      log4,
+    );
     return true;
   }
   if (buttonData === "qqbot:game:idiom-chain") {

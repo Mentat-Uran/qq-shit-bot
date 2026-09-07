@@ -1,0 +1,83 @@
+# Optional ordinary-QQ path. NapCatQQ is the OneBot 11 client; this service
+# is deliberately separate from the official Tencent QQ channel in the core
+# Compose files. It forwards normalized messages to the OpenClaw HTTP surface
+# and sends the result back through the reverse WebSocket connection.
+services:
+  onebot-adapter:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.8.2}
+    user: "${OPENCLAW_UID:-1000}:${OPENCLAW_GID:-1000}"
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-}
+      ONEBOT_SELF_ID: ${ONEBOT_SELF_ID:-}
+      ONEBOT_WS_HOST: ${ONEBOT_WS_HOST:-0.0.0.0}
+      ONEBOT_WS_PORT: ${ONEBOT_WS_PORT:-16700}
+      ONEBOT_WS_PATH: ${ONEBOT_WS_PATH:-/onebot/v11/ws}
+      ONEBOT_ALLOWED_GROUP_IDS: ${ONEBOT_ALLOWED_GROUP_IDS:-}
+      ONEBOT_ALLOWED_USER_IDS: ${ONEBOT_ALLOWED_USER_IDS:-}
+      ONEBOT_ADMIN_USER_IDS: ${ONEBOT_ADMIN_USER_IDS:-}
+      ONEBOT_ALLOW_ALL_GROUPS: ${ONEBOT_ALLOW_ALL_GROUPS:-false}
+      ONEBOT_DM_POLICY: ${ONEBOT_DM_POLICY:-allowlist}
+      ONEBOT_GROUP_REQUIRE_MENTION: ${ONEBOT_GROUP_REQUIRE_MENTION:-true}
+      ONEBOT_STRICT_GROUP_MENTION: ${ONEBOT_STRICT_GROUP_MENTION:-true}
+      ONEBOT_COMMANDS_BYPASS_MENTION: ${ONEBOT_COMMANDS_BYPASS_MENTION:-true}
+      ONEBOT_GATEWAY_URL: ${ONEBOT_GATEWAY_URL:-http://openclaw-gateway:18789}
+      ONEBOT_GATEWAY_MODEL: ${ONEBOT_GATEWAY_MODEL:-openclaw/default}
+      ONEBOT_GATEWAY_MESSAGE_CHANNEL: ${ONEBOT_GATEWAY_MESSAGE_CHANNEL:-qqbot}
+      ONEBOT_GATEWAY_TIMEOUT_MS: ${ONEBOT_GATEWAY_TIMEOUT_MS:-900000}
+      ONEBOT_INBOUND_DEBOUNCE_MS: ${ONEBOT_INBOUND_DEBOUNCE_MS:-700}
+      ONEBOT_QUEUE_CAP: ${ONEBOT_QUEUE_CAP:-2}
+      ONEBOT_GAME_SERVICE_URL: ${ONEBOT_GAME_SERVICE_URL:-http://qqbot-game:18104}
+      ONEBOT_ASR_URL: ${ONEBOT_ASR_URL:-}
+      ONEBOT_ASR_MODEL: ${ONEBOT_ASR_MODEL:-Qwen/Qwen3-ASR-1.7B}
+      ONEBOT_TTS_URL: ${ONEBOT_TTS_URL:-}
+      ONEBOT_TTS_MODEL: ${ONEBOT_TTS_MODEL:-Qwen3-TTS-12Hz-1.7B-Base}
+      ONEBOT_TTS_VOICE: ${ONEBOT_TTS_VOICE:-serena}
+      ONEBOT_AUTO_VOICE_REPLY: ${ONEBOT_AUTO_VOICE_REPLY:-true}
+      ONEBOT_AUDIO_MAX_BYTES: ${ONEBOT_AUDIO_MAX_BYTES:-33554432}
+      ONEBOT_IMAGE_ALLOWED_HOSTS: ${ONEBOT_IMAGE_ALLOWED_HOSTS:-}
+      ONEBOT_IMAGE_MAX_BYTES: ${ONEBOT_IMAGE_MAX_BYTES:-20971520}
+      ONEBOT_REPLY_TO_MESSAGE: ${ONEBOT_REPLY_TO_MESSAGE:-true}
+      ONEBOT_TEXT_CHUNK_SIZE: ${ONEBOT_TEXT_CHUNK_SIZE:-3500}
+      ONEBOT_MEDIA_ROOTS: ${ONEBOT_MEDIA_ROOTS:-/home/node/.openclaw/workspace,/tmp/openclaw}
+      TZ: ${OPENCLAW_TZ:-Asia/Shanghai}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./onebot:/app/onebot:ro
+      - ./runtime/workspace:/home/node/.openclaw/workspace:ro
+      # Share the existing OpenClaw media/log volume read-only so a local
+      # MEDIA:/tmp/openclaw/... response can be delivered by this adapter.
+      - openclaw-logs:/tmp/openclaw:ro
+    depends_on:
+      openclaw-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    ports:
+      - "127.0.0.1:${ONEBOT_WS_PORT:-16700}:${ONEBOT_WS_PORT:-16700}"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:${ONEBOT_WS_PORT:-16700}/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    command: ["node", "/app/onebot/onebot-adapter.mjs"]
+
+volumes:
+  openclaw-logs:
+    name: qqshitbot-openclaw_openclaw-logs

@@ -8,8 +8,10 @@
 
 - QQ 私聊、群聊和明确 @ 触发;网关可接收群消息，但运行时人格仍要求群聊回复以当前 @ 或直接提问为触发条件。
 - 群聊上下文按群独立维护:Linux Codex overlay 每个 @ 默认带当前消息和最近 12 条未 @ 消息作为候选上下文，模型先判断历史和当前消息的关系，相关才纳入推理，无关就忽略；队列使用小容量 steer 模式，60 分钟空闲自动重置；`context-recovery` 守护进程在上下文溢出或模型卡死时自动重置对应群会话。
-- Linux Codex overlay 还提供 CPU-only 群聊小游戏：海龟汤、成语接龙和猜成语。海龟汤复用开源 `nonebot-plugin-ai-turtle-soup` 引擎，开始/状态只展示汤面，不展示会泄露信息的标题；默认使用 50 道本地题库（含带 CC BY 署名的公开示例改编题和 30 道原创悬疑/惊悚/恐怖题），每个群独立持久化轮换，当前轮次不重复同一道汤面；支持 `开始海龟汤 悬疑惊悚恐怖`、`开始海龟汤 恐怖医院` 等自然主题提示词，LunaMax 负责是/否裁判，联网检索出题可通过 `GAME_PUZZLE_SOURCE=ai` 开启。海龟汤每次主持回答开头都会显示当前问题的短摘要，便于多人对应，不再显示提问者 ID。成语接龙和猜成语使用固定 MIT 成语库，不需要模型调用，直接在群里发四字成语即可。
+- Linux Codex overlay 还提供 CPU-only 群聊小游戏：保留海龟汤、成语接龙和猜成语，并新增数字炸弹、24 点、猜人物、猜作品、知识抢答、真假判断、找不同、词语分类、一句话推理、脑筋急转弯、谜语、飞花令、诗词接龙、排序题和线索竞拍。统一从 `小游戏` 查看分组目录，也可以直接发送游戏名、常用别名或 `小游戏 1` 按编号启动；所有规则型游戏共用群房间、玩家积分、排行榜、提示、答案、下一题和结束流程，不依赖私聊、匿名身份或私密发牌。海龟汤复用开源 `nonebot-plugin-ai-turtle-soup` 引擎，开始/状态只展示汤面，不展示会泄露信息的标题；默认使用 50 道本地题库，支持 `开始海龟汤 悬疑惊悚恐怖`、`开始海龟汤 恐怖医院` 等自然主题提示词，LunaMax 负责是/否裁判，联网检索出题可通过 `GAME_PUZZLE_SOURCE=ai` 开启。海龟汤每次主持回答开头都会显示当前问题的短摘要，便于多人对应。成语接龙和猜成语使用固定 MIT 成语库，不需要模型调用，直接在群里发四字成语即可；详细游戏和题库导入说明见 [`docs/QQBOT_CHAT_GAMES.md`](docs/QQBOT_CHAT_GAMES.md)。
+- 同一个 CPU-only sidecar 还提供行测刷题/抢答：常识判断、言语理解、判断推理、数量关系和资料分析均从本地结构化题库随机抽取，可指定模块，支持答案、解析、得分和正确率；基础题干与判分不依赖 LLM。题库导入保留可用的文字题，图表/示意图等必须看图的题不进入纯文字出题路径。
 - Linux Codex overlay 的 QQ 菜单提供显式 TTS 朗读和语调选择：普通文字回复始终是文字，使用 `读：内容` 发语音；成功转写的 QQ 语音入站会把一次 AI 回答转成一次原生语音，菜单可选择温柔、播音、戏剧或正常语调。
+- 可选的普通 QQ 账号路径使用 NapCatQQ + OneBot 11 反向 WebSocket；独立适配器把群聊/私聊、@、引用、图片、语音、文件/卡片摘要和合并转发归一化后复用同一套 OpenClaw、Codex、小游戏、上下文和媒体逻辑，现有官方 QQ Adapter 仍可并行运行。完整流程见 [`docs/ONEBOT_NAPCAT.md`](docs/ONEBOT_NAPCAT.md)。
 - 引用文本、图片、语音、文件和 QQ 小程序卡片摘要处理;小程序有标题时先搜索标题再解读,查不到时不编造正文。
 - 所有平台的文字、图片理解和 QQ 最终回复都使用 `codex-proxy/gpt-5.6-luna`，默认 `max` 推理；图片像素在同一 OpenAI-compatible 请求中发送给 Codex 反代。
 - 主 Bot 栈不包含本地视觉模型、Ollama、SenseNova 或官方 DeepSeek provider；视频分析仍明确关闭。Linux overlay 的 Qwen3-TTS/ASR 和 ComfyUI 只属于按需启动的独立 Docker 辅助能力，不改变核心模型路由。
@@ -30,6 +32,8 @@ cp .env.example .env
 ```
 
 若宿主机已有 Codex 兼容反代，Linux 可使用 `./start-codex.sh` 启动带小游戏、TTS/ASR 和更大上下文策略的 Docker overlay；它仍从同一 `.env` 读取 `CODEX_PROXY_BASE_URL` 与 `CODEX_PROXY_TOKEN`，并把文字和图片请求发送到 `gpt-5.6-luna`。引用或最近图片若只有 QQ 签名下载地址，会先通过精确限制的 QQ 媒体下载路径转成本地图片，不把签名 URL 交给通用图像工具，也不关闭全局 SSRF 防护。详细命令见 [`deploy/openclaw/README.md`](deploy/openclaw/README.md)。
+
+普通 QQ 账号接入在同一目录使用独立入口：先按文档填写 OneBot token、群白名单和管理员 QQ，再运行 `./start-onebot.sh`；需要同时启动 NapCat 容器时运行 `./start-onebot.sh --with-napcat`，登录和反向 WebSocket 配置仍在 NapCat WebUI 手动完成。
 
 ### Windows
 

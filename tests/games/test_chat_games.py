@@ -152,3 +152,134 @@ def test_each_session_has_one_game_and_restart_message_does_not_replace_it():
     assert second["ok"] is False
     assert second["active"] is True
     assert games.status("group:three")["game_type"] == CHAT_GAMES.IDIOM_CHAIN
+
+
+class FirstChoiceRandom:
+    """Deterministic source for structured-game rule tests."""
+
+    def choice(self, values):
+        return values[0]
+
+    def randint(self, lower, upper):
+        return lower
+
+
+def structured_manager(*, bank=None, exam_bank=None):
+    structured_class = CHAT_GAMES._load_structured_manager()
+    if bank is None and exam_bank is None:
+        return structured_class(random_source=FirstChoiceRandom())
+    return structured_class(
+        bank=bank or {},
+        exam_bank=exam_bank or [],
+        random_source=FirstChoiceRandom(),
+    )
+
+
+def test_structured_catalog_keeps_old_games_and_adds_public_text_games():
+    expected = {
+        "number-bomb", "twenty-four", "guess-person", "guess-work", "knowledge",
+        "true-false", "find-different", "word-classification", "one-line-reasoning",
+        "brain-teaser", "riddle", "flower-order", "poetry-chain", "sorting",
+        "clue-auction", "exam",
+    }
+    assert expected <= CHAT_GAMES.GAME_TYPES
+    structured_class = CHAT_GAMES._load_structured_manager()
+    structured_module = sys.modules[structured_class.__module__]
+    assert {item["id"] for item in structured_module.GAME_DEFINITIONS} == expected
+
+
+def test_every_structured_game_has_a_startable_local_round():
+    games = structured_manager()
+    structured_class = CHAT_GAMES._load_structured_manager()
+    structured_module = sys.modules[structured_class.__module__]
+    for definition in structured_module.GAME_DEFINITIONS:
+        session_id = "group:catalog:" + definition["id"]
+        started = games.start(session_id, definition["id"], category="常识")
+        assert started["ok"] is True, definition["id"]
+        assert started["game_type"] == definition["id"]
+        assert started["prompt"]
+        assert games.end(session_id)["ended"] is True
+
+
+def test_structured_manager_uses_one_room_and_scores_exam_answers():
+    exam_bank = [
+        {
+            "id": "unsafe-source-row",
+            "category": "common",
+            "prompt": "不应在公开运行时选中的题",
+            "options": ["甲", "乙"],
+            "answer": "A",
+            "aliases": ["甲"],
+            "explanation": "隐藏来源题",
+            "public_safe": False,
+        },
+        {
+            "id": "safe-source-row",
+            "category": "common",
+            "prompt": "公开题：下列哪项正确？",
+            "options": ["甲", "乙"],
+            "answer": "A",
+            "aliases": ["甲"],
+            "explanation": "因为甲符合题干条件。",
+            "question_type": "single",
+            "public_safe": True,
+        },
+        {
+            "id": "multi-source-row",
+            "category": "common",
+            "prompt": "公开多选题：哪些选项符合条件？",
+            "options": ["甲", "乙", "丙", "丁"],
+            "answer": "AC",
+            "aliases": ["甲、丙", "甲 丙"],
+            "explanation": "甲和丙符合条件。",
+            "question_type": "multiple",
+            "public_safe": True,
+        },
+    ]
+    manager = structured_manager(exam_bank=exam_bank)
+    started = manager.start("group:exam", "exam", category="常识", player_id="u1", player_name="甲")
+    assert started["ok"] is True
+    assert started["prompt"].startswith("公开题")
+    assert "不应在公开运行时选中的题" not in started["prompt"]
+
+    answered = manager.submit("group:exam", "A", player_id="u1", player_name="甲")
+    assert answered is not None
+    assert answered["correct"] is True
+    assert answered["leaderboard"][0]["accuracy"] == 100
+    assert answered["leaderboard"][0]["score"] == 1
+    next_question = manager.submit("group:exam", "下一题", player_id="u1", player_name="甲")
+    assert next_question["round"] == 2
+    assert next_question["question_type"] == "multiple"
+    multi_answer = manager.submit("group:exam", "A、C", player_id="u1", player_name="甲")
+    assert multi_answer is not None
+    assert multi_answer["correct"] is True
+    assert multi_answer["leaderboard"][0]["accuracy"] == 100
+
+
+def test_structured_rules_do_not_eval_untrusted_24_expressions():
+    structured_class = CHAT_GAMES._load_structured_manager()
+    assert structured_class is not None
+    module = sys.modules[structured_class.__module__]
+    assert module.evaluate_24_expression("6/(1-3/4)", [6, 1, 3, 4]) is True
+    assert module.evaluate_24_expression("__import__('os').system('id')", [6, 1, 3, 4]) is False
+
+
+def test_legacy_and_structured_games_share_the_same_room_boundary():
+    games = manager()
+    assert games.start("group:shared", CHAT_GAMES.IDIOM_CHAIN, player_id="u1", player_name="甲")["ok"] is True
+    blocked = games.start("group:shared", "number-bomb", player_id="u2", player_name="乙")
+    assert blocked["ok"] is False
+    assert games.end("group:shared")["ended"] is True
+    started = games.start("group:shared", "number-bomb", player_id="u2", player_name="乙")
+    assert started["game_type"] == "number-bomb"
+
+
+def test_answer_control_reveals_legacy_games_through_the_shared_manager():
+    games = manager()
+    games.start("group:answer", CHAT_GAMES.IDIOM_WORDLE, player_id="u1", player_name="甲")
+    revealed = games.answer("group:answer")
+    assert revealed is not None
+    assert revealed["ended"] is True
+    assert revealed["answer"] == "一心一意"
+    assert "答案已公开" in revealed["message"]
+    assert games.status("group:answer") is None

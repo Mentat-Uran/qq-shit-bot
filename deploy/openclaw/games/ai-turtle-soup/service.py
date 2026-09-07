@@ -26,7 +26,8 @@ from urllib.request import Request, urlopen
 
 import nonebot
 
-from chat_games import ChatGameManager, ChinaIdiomCatalog
+from chat_games import ChatGameManager, ChinaIdiomCatalog, GAME_TYPES
+from structured_games import EXAM_CATEGORIES, GAME_DEFINITIONS
 from selection import (
     PuzzleSelectionStore,
     filter_puzzles_by_theme,
@@ -454,6 +455,7 @@ class QuestionRequest(SessionRequest):
 class ChatGameStartRequest(SessionRequest):
     game: str = Field(min_length=1, max_length=40)
     mode: str = Field(default="same", max_length=20)
+    category: str = Field(default="", max_length=40)
     player_id: str = Field(default="anonymous", max_length=180)
     player_name: str = Field(default="群友", max_length=80)
 
@@ -479,7 +481,15 @@ async def health() -> dict[str, Any]:
         "status": "ok",
         "engine": "nonebot-plugin-ai-turtle-soup",
         "engine_version": "1.0.9",
-        "chat_games": ["idiom-chain", "idiom-wordle"],
+        "chat_games": sorted(GAME_TYPES),
+        "structured_game_catalog": CHAT_GAME_MANAGER.structured.catalog_size,
+        "exam_catalog_size": CHAT_GAME_MANAGER.structured.exam_catalog_size,
+        "exam_public_catalog_size": CHAT_GAME_MANAGER.structured.exam_public_catalog_size,
+        "exam_categories": [
+            {"id": key, "name": label, "aliases": list(aliases)}
+            for key, label, aliases in EXAM_CATEGORIES
+        ],
+        "game_catalog": list(GAME_DEFINITIONS),
         "chat_game_catalog": "China-idiom",
         "chat_game_catalog_size": CHAT_GAME_MANAGER.catalog.size
         if hasattr(CHAT_GAME_MANAGER.catalog, "size")
@@ -596,10 +606,13 @@ async def start_chat_game(request: ChatGameStartRequest) -> dict[str, Any]:
                 session_id,
                 request.game,
                 mode=request.mode,
+                category=request.category,
                 player_id=request.player_id,
                 player_name=request.player_name,
             )
         except ValueError as error:
+            if "no local questions" in str(error):
+                raise HTTPException(status_code=503, detail="local game bank unavailable") from error
             raise HTTPException(status_code=400, detail="unsupported chat game") from error
 
 
@@ -645,6 +658,31 @@ async def hint_chat_game(request: SessionRequest) -> dict[str, Any]:
         if result is None:
             raise HTTPException(status_code=404, detail="no active chat game")
         return result
+
+
+@app.post("/v1/chat-games/answer")
+async def answer_chat_game(request: SessionRequest) -> dict[str, Any]:
+    try:
+        session_id = _session_id(request.session_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="invalid session") from error
+    async with _lock_for(session_id):
+        result = CHAT_GAME_MANAGER.answer(session_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="no active chat game")
+        return result
+
+
+@app.get("/v1/chat-games/catalog")
+async def catalog_chat_games(category: str = "", page: int = 1, page_size: int = 6) -> dict[str, Any]:
+    return {
+        "ok": True,
+        **CHAT_GAME_MANAGER.structured.definitions(
+            category=str(category or "").strip().lower(),
+            page=page,
+            page_size=page_size,
+        ),
+    }
 
 
 @app.post("/v1/chat-games/end")

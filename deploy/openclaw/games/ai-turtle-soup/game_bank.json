@@ -1,0 +1,466 @@
+{
+  "guess-person": [
+    {
+      "id": "person-einstein",
+      "prompt": "他提出相对论，也曾在专利局工作，常被称为20世纪最有影响力的物理学家之一。他是谁？",
+      "answer": "爱因斯坦",
+      "aliases": ["阿尔伯特爱因斯坦", "爱因斯坦先生"],
+      "clues": ["他获得过诺贝尔物理学奖。", "他的名字常与E=mc²一起出现。"],
+      "explanation": "答案是阿尔伯特·爱因斯坦。"
+    },
+    {
+      "id": "person-curie",
+      "prompt": "她长期研究放射性现象，是第一位获得诺贝尔奖的女性，也是少数获得两次诺贝尔奖的人。她是谁？",
+      "answer": "居里夫人",
+      "aliases": ["玛丽居里", "居里"],
+      "clues": ["她与丈夫皮埃尔·居里共同研究。", "她的名字与镭、钋有关。"],
+      "explanation": "答案是玛丽·居里，中文常称居里夫人。"
+    },
+    {
+      "id": "person-da-vinci",
+      "prompt": "他既画过《蒙娜丽莎》，又研究人体、机械和飞行，是文艺复兴时期的博学者。他是谁？",
+      "answer": "达芬奇",
+      "aliases": ["列奥纳多达芬奇", "达·芬奇"],
+      "clues": ["他的手稿里有许多机械草图。", "他的名字中有一个意大利小镇名。"],
+      "explanation": "答案是列奥纳多·达·芬奇。"
+    },
+    {
+      "id": "person-lu-xun",
+      "prompt": "他写过《呐喊》和《彷徨》，笔名来自母亲的姓氏，是中国现代文学的重要作家。他是谁？",
+      "answer": "鲁迅",
+      "aliases": ["周树人"],
+      "clues": ["他的原名是周树人。", "《狂人日记》是他的代表作之一。"],
+      "explanation": "答案是鲁迅，原名周树人。"
+    },
+    {
+      "id": "person-tesla",
+      "prompt": "他推动了交流电系统的发展，许多电磁学单位和现代电动汽车品牌都使用他的名字。他是谁？",
+      "answer": "特斯拉",
+      "aliases": ["尼古拉特斯拉", "尼古拉·特斯拉"],
+      "clues": ["他曾与爱迪生存在著名的技术路线竞争。", "他的名字是磁感应强度单位。"],
+      "explanation": "答案是尼古拉·特斯拉。"
+    }
+  ],
+  "guess-work": [
+    {
+      "id": "work-matrix",
+      "prompt": "这部科幻电影里，人们生活在由机器构造的虚拟世界，主角在红蓝药丸之间作出选择。它是什么作品？",
+      "answer": "黑客帝国",
+      "aliases": ["骇客帝国", "The Matrix", "黑客帝国系列"],
+      "clues": ["主角名叫尼奥。", "作品中有子弹时间。"],
+      "explanation": "答案是电影《黑客帝国》。"
+    },
+    {
+      "id": "work-journey-west",
+      "prompt": "这部古典小说讲述师徒四人从东方出发，经历九九八十一难，目标是取得真经。它是什么作品？",
+      "answer": "西游记",
+      "aliases": ["西游记小说"],
+      "clues": ["队伍中有孙悟空、猪八戒和沙僧。", "主要对手常以妖怪形象出现。"],
+      "explanation": "答案是吴承恩的《西游记》。"
+    },
+    {
+      "id": "work-zelda",
+      "prompt": "这款冒险游戏常让玩家探索海拉鲁，主角使用剑与盾，公主的名字并不是主角的名字。它是什么系列？",
+      "answer": "塞尔达传说",
+      "aliases": ["塞尔达", "塞尔达传说系列"],
+      "clues": ["主角通常叫林克。", "重要道具常包括大师之剑。"],
+      "explanation": "答案是任天堂的《塞尔达传说》系列。"
+    },
+    {
+      "id": "work-totoro",
+      "prompt": "这部动画电影中，姐妹俩搬到乡间，遇见住在大树附近、喜欢乘坐龙猫巴士的神秘生物。它是什么作品？",
+      "answer": "龙猫",
+      "aliases": ["我的邻居龙猫", "邻居家的龙猫"],
+      "clues": ["导演是宫崎骏。", "作品中有一把雨伞和一辆公交车。"],
+      "explanation": "答案是吉卜力动画电影《龙猫》。"
+    },
+    {
+      "id": "work-three-body",
+      "prompt": "这部科幻小说从一场天体物理实验展开，故事涉及三体文明与复杂的宇宙生存问题。它是什么作品？",
+      "answer": "三体",
+      "aliases": ["三体小说", "三体系列"],
+      "clues": ["作者是刘慈欣。", "书名来自一个经典物理难题。"],
+      "explanation": "答案是刘慈欣的科幻小说《三体》。"
+    }
+  ],
+  "knowledge": [
+    {
+      "id": "knowledge-light",
+      "prompt": "在真空中，光和声音谁传播得更快？",
+      "options": ["光", "声音", "一样快", "都不能传播"],
+      "answer": "A",
+      "aliases": ["光", "光传播得更快"],
+      "clues": ["声音传播需要介质。"],
+      "explanation": "光在真空中可以传播，声音不能在真空中传播。"
+    },
+    {
+      "id": "knowledge-photosynthesis",
+      "prompt": "绿色植物进行光合作用时，主要吸收空气中的哪种气体？",
+      "options": ["氧气", "二氧化碳", "氮气", "氢气"],
+      "answer": "B",
+      "aliases": ["二氧化碳", "二氧化碳气体"],
+      "clues": ["它是人和动物呼吸产生的气体之一。"],
+      "explanation": "光合作用吸收二氧化碳并释放氧气。"
+    },
+    {
+      "id": "knowledge-octet",
+      "prompt": "八进制数10换算成十进制是多少？",
+      "options": ["2", "8", "10", "16"],
+      "answer": "B",
+      "aliases": ["8", "八"],
+      "clues": ["八进制的每一位权重是8的幂。"],
+      "explanation": "八进制10表示1×8+0，即十进制8。"
+    },
+    {
+      "id": "knowledge-triangle",
+      "prompt": "三角形的内角和是多少度？",
+      "options": ["90", "180", "270", "360"],
+      "answer": "B",
+      "aliases": ["180", "180度"],
+      "clues": ["任意三角形都可以通过作平行线验证。"],
+      "explanation": "欧氏平面内三角形的内角和为180度。"
+    },
+    {
+      "id": "knowledge-red-planet",
+      "prompt": "哪颗行星常被称为“红色星球”？",
+      "options": ["金星", "火星", "木星", "土星"],
+      "answer": "B",
+      "aliases": ["火星"],
+      "clues": ["它的表面含有较多氧化铁。"],
+      "explanation": "火星表面的氧化铁使其呈现红色。"
+    }
+  ],
+  "true-false": [
+    {
+      "id": "tf-whale",
+      "prompt": "鲸鱼是鱼类，因为它生活在水中。",
+      "answer": "假",
+      "aliases": ["错", "不对", "false", "f"],
+      "clues": ["分类看生理特征，不只看生活环境。"],
+      "explanation": "鲸鱼是哺乳动物，需要用肺呼吸。"
+    },
+    {
+      "id": "tf-leap",
+      "prompt": "闰年的二月有29天。",
+      "answer": "真",
+      "aliases": ["对", "正确", "true", "t"],
+      "clues": ["四年一闰是常见近似规则。"],
+      "explanation": "公历闰年二月有29天。"
+    },
+    {
+      "id": "tf-metal",
+      "prompt": "所有金属在常温下都是固体。",
+      "answer": "假",
+      "aliases": ["错", "不对", "false", "f"],
+      "clues": ["想想一种常温下会流动的金属。"],
+      "explanation": "汞在常温下是液态金属。"
+    },
+    {
+      "id": "tf-bamboo",
+      "prompt": "竹子属于草本植物，而不是木本植物。",
+      "answer": "真",
+      "aliases": ["对", "正确", "true", "t"],
+      "clues": ["植物分类不由“看起来像木头”决定。"],
+      "explanation": "竹子是禾本科多年生草本植物。"
+    },
+    {
+      "id": "tf-zero",
+      "prompt": "任何数除以0都有意义。",
+      "answer": "假",
+      "aliases": ["错", "不对", "false", "f"],
+      "clues": ["除法要求除数不能为0。"],
+      "explanation": "在通常的实数运算中，除以0没有定义。"
+    }
+  ],
+  "find-different": [
+    {
+      "id": "diff-hanzi-1",
+      "prompt": "找出不同项：A.晴  B.睛  C.晴  D.晴",
+      "answer": "B",
+      "aliases": ["2", "第二个", "第2个"],
+      "explanation": "B中的“睛”与其他三个“晴”不同。"
+    },
+    {
+      "id": "diff-number-1",
+      "prompt": "找出不同项：1  1  1  7  1  1",
+      "answer": "4",
+      "aliases": ["D", "第四个", "第4个"],
+      "explanation": "第4项是7，其余都是1。"
+    },
+    {
+      "id": "diff-symbol-1",
+      "prompt": "找出不同项：A.○  B.○  C.●  D.○",
+      "answer": "C",
+      "aliases": ["3", "第三个", "第3个"],
+      "explanation": "C是实心圆，其余是空心圆。"
+    },
+    {
+      "id": "diff-word-1",
+      "prompt": "找出不同项：A.苹果  B.梨  C.桃  D.铅笔",
+      "answer": "D",
+      "aliases": ["4", "第四个", "第4个"],
+      "explanation": "D不是水果。"
+    }
+  ],
+  "word-classification": [
+    {
+      "id": "class-fruit",
+      "prompt": "苹果、香蕉、葡萄、胡萝卜，这组词中前三项属于什么类别？",
+      "answer": "水果",
+      "aliases": ["水果类", "水果类别"],
+      "explanation": "苹果、香蕉和葡萄都是水果。"
+    },
+    {
+      "id": "class-string",
+      "prompt": "小提琴、钢琴、长笛、扳手，这组词中前三项属于什么类别？",
+      "answer": "乐器",
+      "aliases": ["乐器类", "音乐工具"],
+      "explanation": "小提琴、钢琴和长笛都是乐器。"
+    },
+    {
+      "id": "class-geometry",
+      "prompt": "正方形、圆形、三角形、蓝色，这组词中前三项属于什么类别？",
+      "answer": "几何图形",
+      "aliases": ["图形", "平面图形"],
+      "explanation": "前三项都是常见的平面几何图形。"
+    },
+    {
+      "id": "class-sea",
+      "prompt": "鲨鱼、海豚、海龟、麻雀，这组词中前三项属于什么类别？",
+      "answer": "海洋动物",
+      "aliases": ["海洋生物", "海洋动物类"],
+      "explanation": "鲨鱼、海豚和海龟都可以归入海洋动物。"
+    }
+  ],
+  "one-line-reasoning": [
+    {
+      "id": "reasoning-switch",
+      "prompt": "房间里有三盏灯，门外有三个开关，只能进门一次。怎样确定每个开关对应哪盏灯？请用一句话回答。",
+      "answer": "利用灯的温度和亮灭状态",
+      "aliases": ["开两个开关利用温度", "一个开着一个开一会儿再关", "摸温度"],
+      "clues": ["灯泡不仅有亮灭两种信息。"],
+      "explanation": "先开一盏一段时间后关闭，再开另一盏，进屋用亮灭和温度区分三盏灯。"
+    },
+    {
+      "id": "reasoning-bridge",
+      "prompt": "四人过桥只有一把手电，过桥时间分别为1、2、7、10分钟，最多两人同行。最少需要多少分钟？",
+      "answer": "17分钟",
+      "aliases": ["17", "十七分钟"],
+      "clues": ["让最快的人负责把手电送回。"],
+      "explanation": "1和2过、1回；7和10过、2回；1和2再过，共17分钟。"
+    },
+    {
+      "id": "reasoning-box",
+      "prompt": "有三个盒子分别标着苹果、橘子、混合，但三个标签全错。只取一个水果，怎样重新贴对？",
+      "answer": "从混合标签盒取一个",
+      "aliases": ["从混合盒取水果", "先取混合盒"],
+      "clues": ["全错意味着“混合”标签盒一定不是混合。"],
+      "explanation": "从标着混合的盒子取一个即可确定该盒，再由排除法确定另外两个。"
+    },
+    {
+      "id": "reasoning-clock",
+      "prompt": "时钟3点整时，分针和时针的夹角是多少度？",
+      "answer": "90度",
+      "aliases": ["90", "九十度"],
+      "clues": ["整点时分针指向12。"],
+      "explanation": "3点整分针指向12，时针指向3，夹角为90度。"
+    }
+  ],
+  "brain-teaser": [
+    {
+      "id": "brain-hair",
+      "prompt": "什么东西别人能用，你却不能用？",
+      "answer": "别人的名字",
+      "aliases": ["别人名字", "名字"],
+      "explanation": "通常说的是别人的名字，不能拿来当自己的名字使用。"
+    },
+    {
+      "id": "brain-water",
+      "prompt": "什么东西越洗越脏？",
+      "answer": "水",
+      "aliases": ["洗东西的水"],
+      "explanation": "水在清洗物品后会变脏。"
+    },
+    {
+      "id": "brain-mouth",
+      "prompt": "什么门永远关不上？",
+      "answer": "球门",
+      "aliases": ["球门"],
+      "explanation": "球门不是供人关开的普通门。"
+    },
+    {
+      "id": "brain-rain",
+      "prompt": "什么雨可以淋人，却不会打湿衣服？",
+      "answer": "毛毛雨的图片",
+      "aliases": ["图片里的雨", "画里的雨", "雨的照片"],
+      "explanation": "图片或画里的雨只是视觉上的雨，不会真的弄湿衣服。"
+    }
+  ],
+  "riddle": [
+    {
+      "id": "riddle-clock",
+      "prompt": "有面没有口，有脚没有手，虽有四只脚，自己不会走。打一物。",
+      "answer": "桌子",
+      "aliases": ["桌"],
+      "explanation": "桌子有桌面和四条腿，但不会自己行走。"
+    },
+    {
+      "id": "riddle-needle",
+      "prompt": "身穿绿衣裳，肚里水汪汪，生的子儿多，个个黑脸膛。打一水果。",
+      "answer": "西瓜",
+      "aliases": ["瓜"],
+      "explanation": "西瓜外绿内红，籽多且黑。"
+    },
+    {
+      "id": "riddle-sun",
+      "prompt": "白天出现，晚上不见；又红又圆，照亮人间。打一自然物。",
+      "answer": "太阳",
+      "aliases": ["日头", "太阳公公"],
+      "explanation": "谜底是太阳。"
+    },
+    {
+      "id": "riddle-book",
+      "prompt": "一页一页又一页，知识都在里面。打一物。",
+      "answer": "书",
+      "aliases": ["书本", "书籍"],
+      "explanation": "书由许多页组成，用来承载知识。"
+    }
+  ],
+  "flower-order": [
+    {
+      "id": "flower-moon",
+      "prompt": "以“月”为题字，接出题库中的古诗句。",
+      "character": "月",
+      "target_count": 3,
+      "entries": [
+        {"line": "海上生明月，天涯共此时", "author": "张九龄"},
+        {"line": "举头望明月，低头思故乡", "author": "李白"},
+        {"line": "明月几时有，把酒问青天", "author": "苏轼"},
+        {"line": "月落乌啼霜满天，江枫渔火对愁眠", "author": "张继"}
+      ],
+      "explanation": "飞花令要求诗句包含题字。"
+    },
+    {
+      "id": "flower-wind",
+      "prompt": "以“风”为题字，接出题库中的古诗句。",
+      "character": "风",
+      "target_count": 3,
+      "entries": [
+        {"line": "夜来风雨声，花落知多少", "author": "孟浩然"},
+        {"line": "随风潜入夜，润物细无声", "author": "杜甫"},
+        {"line": "长风破浪会有时，直挂云帆济沧海", "author": "李白"},
+        {"line": "风急天高猿啸哀，渚清沙白鸟飞回", "author": "杜甫"}
+      ],
+      "explanation": "飞花令要求诗句包含题字。"
+    },
+    {
+      "id": "flower-spring",
+      "prompt": "以“春”为题字，接出题库中的古诗句。",
+      "character": "春",
+      "target_count": 3,
+      "entries": [
+        {"line": "好雨知时节，当春乃发生", "author": "杜甫"},
+        {"line": "不知细叶谁裁出，二月春风似剪刀", "author": "贺知章"},
+        {"line": "几处早莺争暖树，谁家新燕啄春泥", "author": "白居易"},
+        {"line": "春眠不觉晓，处处闻啼鸟", "author": "孟浩然"}
+      ],
+      "explanation": "飞花令要求诗句包含题字。"
+    }
+  ],
+  "poetry-chain": [
+    {
+      "id": "poetry-chain-mountain",
+      "prompt": "诗词接龙：题库中的诗句按上一句末字接下一句首字。",
+      "start": "白日依山尽",
+      "max_rounds": 6,
+      "entries": [
+        {"line": "尽日君王看不足", "author": "白居易"},
+        {"line": "足蒸暑土气，背灼炎天光", "author": "白居易"},
+        {"line": "光阴似箭，日月如梭", "author": "俗语"},
+        {"line": "梭边鱼跃鸬鹚笑", "author": "题库句"},
+        {"line": "笑问客从何处来", "author": "贺知章"},
+        {"line": "来日绮窗前，寒梅著花未", "author": "王维"},
+        {"line": "未成曲调先有情", "author": "白居易"}
+      ],
+      "explanation": "诗句按末字和首字接龙。"
+    },
+    {
+      "id": "poetry-chain-river",
+      "prompt": "诗词接龙：按上一句末字接下一句首字。",
+      "start": "大江东去",
+      "max_rounds": 6,
+      "entries": [
+        {"line": "去留肝胆两昆仑", "author": "谭嗣同"},
+        {"line": "仑山多积雪，幽人自来去", "author": "孟浩然"},
+        {"line": "去日苦多，来日方长", "author": "熟语化用"},
+        {"line": "长风万里送秋雁", "author": "李白"},
+        {"line": "雁字回时，月满西楼", "author": "李清照"},
+        {"line": "楼船夜雪瓜洲渡", "author": "陆游"}
+      ],
+      "explanation": "诗句按末字和首字接龙。"
+    }
+  ],
+  "sorting": [
+    {
+      "id": "sort-planets",
+      "prompt": "按距离太阳由近到远排序：A.地球  B.水星  C.火星  D.金星",
+      "answer": "B>D>A>C",
+      "answer_order": ["B", "D", "A", "C"],
+      "aliases": ["水星金星地球火星", "B D A C"],
+      "explanation": "四者距离太阳由近到远为水星、金星、地球、火星。"
+    },
+    {
+      "id": "sort-data",
+      "prompt": "按从小到大排序：A.0.8  B.3/4  C.0.7  D.80%",
+      "answer": "C>B>D>A",
+      "answer_order": ["C", "B", "D", "A"],
+      "aliases": ["C B D A"],
+      "explanation": "0.7＜0.75＜0.8＜0.8；本题约定相同值按题目顺序，D在A前。"
+    },
+    {
+      "id": "sort-time",
+      "prompt": "按时间先后排序：A.明朝  B.秦朝  C.唐朝  D.宋朝",
+      "answer": "B>C>D>A",
+      "answer_order": ["B", "C", "D", "A"],
+      "aliases": ["B C D A"],
+      "explanation": "秦、唐、宋、明是常见历史时序。"
+    },
+    {
+      "id": "sort-units",
+      "prompt": "按长度从短到长排序：A.1米  B.1厘米  C.1千米  D.1毫米",
+      "answer": "D>B>A>C",
+      "answer_order": ["D", "B", "A", "C"],
+      "aliases": ["D B A C"],
+      "explanation": "毫米、厘米、米、千米依次变长。"
+    }
+  ],
+  "clue-auction": [
+    {
+      "id": "auction-shadow",
+      "prompt": "谜题：一个人走进房间，看了一眼墙上的东西就立刻离开并报警。请猜他看到了什么？",
+      "answer": "通缉令",
+      "aliases": ["自己的通缉令", "看到通缉令"],
+      "clues": ["墙上的内容与某个人的身份有关。", "报警人并不是普通路人。", "他在画像或照片中认出了自己。"],
+      "clue_costs": [1, 2, 3],
+      "explanation": "他看到墙上贴着自己的通缉令，所以报警。"
+    },
+    {
+      "id": "auction-umbrella",
+      "prompt": "谜题：一个人雨天没有带伞，却没有淋湿头发。为什么？",
+      "answer": "他是光头",
+      "aliases": ["他没有头发", "光头"],
+      "clues": ["问题里的“头发”是关键。", "不是因为他躲在屋檐下。", "他的头上没有可被淋湿的头发。"],
+      "clue_costs": [1, 2, 2],
+      "explanation": "因为他是光头，所以没有淋湿头发。"
+    },
+    {
+      "id": "auction-elevator",
+      "prompt": "谜题：一个人每天上班都坐电梯到十楼，但回家只坐到七楼再走楼梯。下雨天却能直接到十楼。为什么？",
+      "answer": "他个子矮，雨天用伞按十楼",
+      "aliases": ["个子矮够不到十楼", "用伞按电梯", "身高不够"],
+      "clues": ["电梯本身没有故障。", "他每天的身高没有变化。", "雨天他手里多了一件长物品。"],
+      "clue_costs": [1, 2, 3],
+      "explanation": "他个子矮，平时够不到十楼按钮；下雨天可以用伞按到。"
+    }
+  ]
+}
