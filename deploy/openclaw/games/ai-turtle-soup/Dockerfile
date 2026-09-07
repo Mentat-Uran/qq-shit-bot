@@ -17,8 +17,11 @@ RUN pip install --no-cache-dir \
 WORKDIR /opt/qq-game
 COPY service.py /opt/qq-game/service.py
 COPY chat_games.py /opt/qq-game/chat_games.py
+COPY structured_games.py /opt/qq-game/structured_games.py
 COPY selection.py /opt/qq-game/selection.py
 COPY sample_soups.json /opt/qq-game/sample_soups.json
+COPY game_bank.json /opt/qq-game/game_bank.json
+COPY exam_bank.json /opt/qq-game/exam_bank.json
 
 USER 1000:1000
 EXPOSE 18104

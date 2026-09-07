@@ -13,17 +13,44 @@ fixture and can be replaced by another licensed dictionary later.
 
 from __future__ import annotations
 
+import importlib.util
 import random
 import re
+import sys
 import time
 from collections import Counter
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol, Sequence
 
 
 IDIOM_CHAIN = "idiom-chain"
 IDIOM_WORDLE = "idiom-wordle"
-GAME_TYPES = frozenset({IDIOM_CHAIN, IDIOM_WORDLE})
+LEGACY_GAME_TYPES = frozenset({IDIOM_CHAIN, IDIOM_WORDLE})
+# Keep these IDs in the adapter-facing module so callers can validate a game
+# before the optional structured-bank loader is imported.  The authoritative
+# labels/aliases live in structured_games.py.
+STRUCTURED_GAME_TYPES = frozenset(
+    {
+        "number-bomb",
+        "twenty-four",
+        "guess-person",
+        "guess-work",
+        "knowledge",
+        "true-false",
+        "find-different",
+        "word-classification",
+        "one-line-reasoning",
+        "brain-teaser",
+        "riddle",
+        "flower-order",
+        "poetry-chain",
+        "sorting",
+        "clue-auction",
+        "exam",
+    }
+)
+GAME_TYPES = frozenset(LEGACY_GAME_TYPES | STRUCTURED_GAME_TYPES)
 
 CHAIN_MAX_ROUNDS = 30
 WORDLE_MAX_GUESSES = 10
@@ -245,6 +272,24 @@ def score_wordle_guess(answer: str, guess: str) -> list[str]:
     return marks
 
 
+def _load_structured_manager() -> Any:
+    """Load the sibling module both in the image and in direct file tests."""
+
+    try:
+        from structured_games import StructuredGameManager
+
+        return StructuredGameManager
+    except ModuleNotFoundError:
+        module_path = Path(__file__).with_name("structured_games.py")
+        spec = importlib.util.spec_from_file_location("qqbot_structured_games", module_path)
+        if spec is None or spec.loader is None:
+            raise
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.StructuredGameManager
+
+
 class ChatGameManager:
     """Own one active text game per conversation scope."""
 
@@ -257,6 +302,7 @@ class ChatGameManager:
         wordle_max_guesses: int = WORDLE_MAX_GUESSES,
         idle_seconds: float = GAME_IDLE_SECONDS,
         max_sessions: int = MAX_ACTIVE_SESSIONS,
+        structured_manager: Any | None = None,
     ) -> None:
         self.catalog = catalog
         self.random = random_source or random.SystemRandom()
@@ -265,6 +311,12 @@ class ChatGameManager:
         self.idle_seconds = max(60.0, float(idle_seconds))
         self.max_sessions = max(1, int(max_sessions))
         self._games: dict[str, _ChainGame | _WordleGame] = {}
+        structured_class = _load_structured_manager()
+        self.structured = structured_manager or structured_class(
+            random_source=self.random,
+            idle_seconds=self.idle_seconds,
+            max_sessions=self.max_sessions,
+        )
 
     @staticmethod
     def _mode(value: Any) -> str:
@@ -318,12 +370,12 @@ class ChatGameManager:
         ]
 
     def active(self, session_id: str) -> bool:
-        return self._game(session_id) is not None
+        return self._game(session_id) is not None or bool(self.structured.active(session_id))
 
     def active_count(self) -> int:
         for session_id in list(self._games):
             self._expire(session_id)
-        return len(self._games)
+        return len(self._games) + int(self.structured.active_count())
 
     def start(
         self,
@@ -331,11 +383,27 @@ class ChatGameManager:
         game_type: str,
         *,
         mode: Any = "same",
+        category: Any = "",
         player_id: Any = "anonymous",
         player_name: Any = "群友",
     ) -> dict[str, Any]:
         if game_type not in GAME_TYPES:
             raise ValueError("unsupported chat game")
+        if game_type in STRUCTURED_GAME_TYPES:
+            if self.active(session_id):
+                return {
+                    "ok": False,
+                    "active": True,
+                    "message": "当前群里已有进行中的小游戏，请先发送“放弃”结束它。",
+                }
+            return self.structured.start(
+                session_id,
+                game_type,
+                mode=mode,
+                category=category,
+                player_id=player_id,
+                player_name=player_name,
+            )
         if self.active(session_id):
             return {
                 "ok": False,
@@ -435,7 +503,12 @@ class ChatGameManager:
     ) -> dict[str, Any] | None:
         game = self._game(session_id)
         if game is None:
-            return None
+            return self.structured.submit(
+                session_id,
+                text,
+                player_id=player_id,
+                player_name=player_name,
+            )
         if isinstance(game, _ChainGame):
             return self._submit_chain(
                 session_id, game, text, player_id=player_id, player_name=player_name
@@ -589,12 +662,14 @@ class ChatGameManager:
 
     def status(self, session_id: str) -> dict[str, Any] | None:
         game = self._game(session_id)
-        return self._payload(game) if game is not None else None
+        if game is not None:
+            return self._payload(game)
+        return self.structured.status(session_id)
 
     def hint(self, session_id: str) -> dict[str, Any] | None:
         game = self._game(session_id)
         if game is None:
-            return None
+            return self.structured.hint(session_id)
         if isinstance(game, _ChainGame):
             candidates = [
                 word
@@ -635,10 +710,26 @@ class ChatGameManager:
             "message": f"答案第 {position + 1} 个字是「{game.answer[position]}」。",
         }
 
+    def answer(self, session_id: str) -> dict[str, Any] | None:
+        """Reveal the current room through the same control used by new games."""
+
+        game = self._game(session_id)
+        if game is None:
+            return self.structured.answer(session_id)
+        if isinstance(game, _ChainGame):
+            result = self.end(session_id)
+            if result is not None:
+                result["message"] = "成语接龙答案已公开，当前房间已结束。"
+            return result
+        result = self.end(session_id)
+        if result is not None:
+            result["message"] = "猜成语答案已公开，当前房间已结束。"
+        return result
+
     def end(self, session_id: str) -> dict[str, Any] | None:
         game = self._games.pop(session_id, None)
         if game is None:
-            return None
+            return self.structured.end(session_id)
         if isinstance(game, _ChainGame):
             return {
                 "ok": True,

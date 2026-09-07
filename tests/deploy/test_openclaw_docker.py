@@ -450,6 +450,10 @@ def test_codex_overlay_adds_a_cpu_only_reusable_turtle_soup_sidecar():
     assert all(isinstance(puzzle["supplementary_info"], list) for puzzle in sample_puzzles)
     service = (game_dir / "service.py").read_text(encoding="utf-8")
     chat_games = (game_dir / "chat_games.py").read_text(encoding="utf-8")
+    structured_games = (game_dir / "structured_games.py").read_text(encoding="utf-8")
+    exam_bank = json.loads((game_dir / "exam_bank.json").read_text(encoding="utf-8"))
+    game_bank = json.loads((game_dir / "game_bank.json").read_text(encoding="utf-8"))
+    importer = (ROOT / "tools" / "import_exam_bank.py").read_text(encoding="utf-8")
     selection = (game_dir / "selection.py").read_text(encoding="utf-8")
     upstream = (game_dir / "UPSTREAM.md").read_text(encoding="utf-8")
     chat_upstream = (game_dir / "CHAT_GAMES_UPSTREAM.md").read_text(encoding="utf-8")
@@ -458,6 +462,9 @@ def test_codex_overlay_adds_a_cpu_only_reusable_turtle_soup_sidecar():
     assert "nonebot-plugin-ai-turtle-soup==1.0.9" in (game_dir / "Dockerfile").read_text(encoding="utf-8")
     assert "china-idiom @ https://github.com/sfyc23/China-idiom/archive/78606b0294a22e798633c4469a4009b78ad60f26.tar.gz" in (game_dir / "Dockerfile").read_text(encoding="utf-8")
     assert 'COPY chat_games.py /opt/qq-game/chat_games.py' in (game_dir / "Dockerfile").read_text(encoding="utf-8")
+    assert 'COPY structured_games.py /opt/qq-game/structured_games.py' in (game_dir / "Dockerfile").read_text(encoding="utf-8")
+    assert 'COPY game_bank.json /opt/qq-game/game_bank.json' in (game_dir / "Dockerfile").read_text(encoding="utf-8")
+    assert 'COPY exam_bank.json /opt/qq-game/exam_bank.json' in (game_dir / "Dockerfile").read_text(encoding="utf-8")
     assert "create_local_game" in service
     assert "_create_rotating_local_game" in service
     assert "GAME_PUZZLE_SELECTION_STATE_PATH" in service
@@ -477,6 +484,18 @@ def test_codex_overlay_adds_a_cpu_only_reusable_turtle_soup_sidecar():
     assert "CHAT_GAME_MANAGER" in service
     assert "IdiomCatalog" in chat_games
     assert "idiom-chain" in chat_games and "idiom-wordle" in chat_games
+    assert all(game_id in structured_games for game_id in [
+        "number-bomb", "twenty-four", "guess-person", "guess-work", "knowledge",
+        "true-false", "find-different", "word-classification", "one-line-reasoning",
+        "brain-teaser", "riddle", "flower-order", "poetry-chain", "sorting",
+        "clue-auction", "exam",
+    ])
+    assert len(exam_bank) >= 4000
+    assert {item["category"] for item in exam_bank} == {"common", "verbal", "reasoning", "quant", "data"}
+    assert all(item.get("public_safe") is True for item in exam_bank)
+    assert all(not any(term in item["prompt"] for term in ["下图", "如图", "图中", "图表", "折线图", "柱状图", "饼图", "坐标图", "数独", "示意图", "图形推理", "空间重构"]) for item in exam_bank)
+    assert "public_safe=false" in importer
+    assert sum(len(items) for items in game_bank.values()) >= 40
     assert '"title": str(puzzle' not in service
     assert '"title"' in service  # upstream generation schema remains internal only
     assert '"local_puzzle_count"' in service
@@ -495,11 +514,14 @@ def test_codex_overlay_adds_a_cpu_only_reusable_turtle_soup_sidecar():
     assert "qqbot:tts:tone:gentle" in interactive
     assert "qqbot:tts:tone:status" in interactive
     assert "温柔读" in interactive
-    assert "qqbot-interactive-features-v8" in interactive
+    assert "qqbot-interactive-features-v9" in interactive
+    assert "qqbot:menu:games" in interactive
+    assert "qqbot:menu:exam" in interactive
+    assert "小游戏 题库" in interactive
     assert "❓问题：" in interactive
     assert "qqbotInteractiveQuestionSummary" in interactive
     assert "questioner_id" not in interactive
-    assert "data.title" not in interactive
+    assert "data.title" in interactive  # structured-game titles are player-visible labels, not turtle-soup secrets
     assert "qqbotInteractiveHasSuccessfulVoiceTranscript" in interactive
     assert "qqbotInteractiveForceVoiceReply" in interactive
     assert "autoVoiceReply: ctx?.state?.qqbotInteractiveVoiceReply === true" in interactive
