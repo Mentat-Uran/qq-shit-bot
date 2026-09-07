@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { buildInjectedMediaPolicySource } from "./media-policy.mjs";
 import {
   buildInjectedQqbotContextPolicySource,
@@ -13,7 +14,12 @@ const LEGACY_VIDEO_MENTION_GATE_MARKER = "/* qqbot-video-mention-gate-v1 */";
 const HISTORICAL_MEDIA_DISABLED_MARKER = "/* qqbot-historical-media-disabled-v2 */";
 const QUOTE_IMAGE_CONTEXT_MARKER = "/* qqbot-single-image-context-v1 */";
 const QUOTE_MEDIA_PREFETCH_MARKER = "/* qqbot-quote-media-prefetch-v1 */";
-const TENCENT_MEDIA_OVERLAY_MARKER = "/* qqbot-tencent-media-overlay-v1 */";
+const TENCENT_MEDIA_OVERLAY_MARKER = "/* qqbot-tencent-media-overlay-v4 */";
+const LEGACY_TENCENT_MEDIA_OVERLAY_MARKERS = [
+  "/* qqbot-tencent-media-overlay-v3 */",
+  "/* qqbot-tencent-media-overlay-v2 */",
+  "/* qqbot-tencent-media-overlay-v1 */",
+];
 const TENCENT_QQ_MEDIA_PROXY_MARKER = "/* qqbot-qq-media-proxy-v1 */";
 const TENCENT_FORWARD_RECORD_MARKER = "/* qqbot-forward-record-v1 */";
 const TENCENT_CANONICAL_MEDIA_MARKER = "/* qqbot-canonical-inbound-media-v1 */";
@@ -577,9 +583,15 @@ const qqbotForwardRecordNestedKeys = [
   "multimsg",
   "chat_record",
   "chatRecord",
+  "raw_message",
   "msg_elements",
   "elements",
   "message",
+  "card",
+  "json",
+  "extra",
+  "card_data",
+  "json_data",
   "data",
   "raw",
   "payload",
@@ -589,16 +601,36 @@ const qqbotForwardRecordMaxDepth = 10;
 const qqbotForwardRecordMaxMessages = 80;
 const qqbotForwardRecordMaxChars = 12000;
 
+function qqbotForwardRecordDecodeEntities(value) {
+  return String(value ?? "")
+    .replace(/&#(?:44|x2c);/gi, ",")
+    .replace(/&#(?:91|x5b);/gi, "[")
+    .replace(/&#(?:93|x5d);/gi, "]")
+    .replace(/&#(?:61|x3d);/gi, "=")
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, "&");
+}
+
 function qqbotForwardRecordParseJson(value) {
   if (typeof value !== "string") return null;
-  const text = value.trim();
-  if (!text || (text[0] !== "{" && text[0] !== "[")) return null;
-  if (!/(com\.tencent\.multimsg|multimsg|multi_msg|chat[_-]?record|forward|nodes|messages|records)/i.test(text)) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
+  let text = qqbotForwardRecordDecodeEntities(value.trim());
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const wrapped = text.match(/^\[(?:CQ:)?json(?:,data=|,data:)([\s\S]*)\]$/i);
+    if (wrapped) text = qqbotForwardRecordDecodeEntities(wrapped[1].trim());
+    if (!text || (text[0] !== "{" && text[0] !== "[")) return null;
+    if (!/(com\.tencent\.multimsg|multimsg|multi_msg|chat[_-]?record|forward|nodes|messages|records)/i.test(text)) return null;
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed === "string" && parsed.trim() && parsed.trim() !== text) {
+        text = qqbotForwardRecordDecodeEntities(parsed.trim());
+        continue;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
 function qqbotForwardRecordIsCard(value) {
@@ -673,8 +705,34 @@ function qqbotForwardRecordAddImage(state, candidate) {
   state.imageCandidates.push(candidate);
 }
 
+function qqbotForwardRecordCollectCqImages(value, state) {
+  if (typeof value !== "string") return;
+  const tokens = value.match(/\[(?:CQ:)?image(?:,[^\]]*)?\]/gi) ?? [];
+  for (const token of tokens) {
+    const params = token.slice(token.indexOf(",") + 1, -1);
+    const getParam = (name) => {
+      const match = params.match(new RegExp("(?:^|,)" + name + "=([^,\\]]+)", "i"));
+      return match ? qqbotForwardRecordDecodeEntities(match[1]) : "";
+    };
+    const url = [getParam("url"), getParam("file_url"), getParam("file")]
+      .find((candidate) => /^https?:\/\//i.test(candidate)) ?? "";
+    if (!url) continue;
+    qqbotForwardRecordAddImage(state, qqbotOverlayImageCandidate({
+      type: "image",
+      url,
+      filename: getParam("filename") || getParam("name") || getParam("file")
+    }));
+  }
+}
+
 function qqbotForwardRecordCollectImages(value, state, depth = 0) {
   if (depth > qqbotForwardRecordMaxDepth || value == null) return;
+  if (typeof value === "string") {
+    qqbotForwardRecordCollectCqImages(value, state);
+    const parsed = qqbotForwardRecordParseJson(value);
+    if (parsed) qqbotForwardRecordCollectImages(parsed, state, depth + 1);
+    return;
+  }
   if (Array.isArray(value)) {
     for (const item of value) qqbotForwardRecordCollectImages(item, state, depth + 1);
     return;
@@ -682,7 +740,26 @@ function qqbotForwardRecordCollectImages(value, state, depth = 0) {
   if (typeof value !== "object") return;
   const candidate = qqbotOverlayImageCandidate(value);
   if (candidate) qqbotForwardRecordAddImage(state, candidate);
-  for (const key of ["attachments", "image", "media", ...qqbotForwardRecordNestedKeys, "meta", "detail", "news"]) {
+  for (const key of [
+    "attachments",
+    "attachment",
+    "image",
+    "media",
+    "download_url",
+    "downloadUrl",
+    "file_url",
+    "fileUrl",
+    "raw_message",
+    "src",
+    "source",
+    "href",
+    "file",
+    "resource",
+    ...qqbotForwardRecordNestedKeys,
+    "meta",
+    "detail",
+    "news"
+  ]) {
     const child = value[key];
     if (child && child !== value) qqbotForwardRecordCollectImages(child, state, depth + 1);
   }
@@ -730,7 +807,7 @@ function qqbotForwardRecordWalkNode(value, state, depth = 0) {
   state.imageCountBeforeNode = state.imageCandidates.length;
   qqbotForwardRecordCollectImages(value, state, depth);
   qqbotForwardRecordAddLine(state, qqbotForwardRecordNodeLine(value, state));
-  for (const key of qqbotForwardRecordNestedKeys) {
+  for (const key of [...qqbotForwardRecordNestedKeys, "attachments"]) {
     const child = value[key];
     if (child == null || child === value) continue;
     if (key === "content" && typeof child === "string") continue;
@@ -752,7 +829,7 @@ function qqbotForwardRecordWalkCard(value, state, depth = 0) {
   for (const item of news) qqbotForwardRecordWalkNode(item, state, depth + 1);
 
   let sawExpandedEntries = false;
-  for (const key of ["nodes", "messages", "records", "forward", "multi_msg", "multimsg", "chat_record", "chatRecord", "msg_elements", "elements"]) {
+  for (const key of ["nodes", "messages", "records", "forward", "multi_msg", "multimsg", "chat_record", "chatRecord", "msg_elements", "elements", "attachments", "data", "extra", "raw_message"]) {
     const child = value[key] ?? detail[key];
     if (child == null) continue;
     sawExpandedEntries = true;
@@ -793,7 +870,8 @@ function qqbotForwardRecordWalkRoot(value, state, depth = 0) {
   }
   if (state.seenRoots.has(value)) return;
   state.seenRoots.add(value);
-  for (const key of ["msg_elements", "elements", "data", "raw", "payload", "card", "message", "content", "attachments"]) {
+  qqbotForwardRecordCollectImages(value, state, depth);
+  for (const key of ["msg_elements", "elements", "data", "extra", "raw_message", "raw", "payload", "card", "message", "content", "attachments"]) {
     const child = value[key];
     if (child == null || child === value) continue;
     qqbotForwardRecordWalkRoot(child, state, depth + 1);
@@ -818,7 +896,7 @@ function qqbotOverlayExtractForwardRecord(ctx) {
     truncated: false
   };
   const message = ctx?.message;
-  for (const source of [message?.raw, message?.msgElements, message?.content]) {
+  for (const source of [message?.raw, message?.msgElements, message?.attachments, message?.content]) {
     qqbotForwardRecordWalkRoot(source, state);
   }
   if (!state.sawCard) return null;
@@ -827,7 +905,9 @@ function qqbotOverlayExtractForwardRecord(ctx) {
     : state.sawPreview
       ? "[QQ forwarded chat record (preview data)]"
       : "[QQ forwarded chat record]";
-  if (!state.lines.length && state.referenceOnly) {
+  if (state.referenceOnly && !state.sawExpanded) {
+    header += "\nOnly the forward-card preview/reference was delivered; the original forwarded message bodies and image pixels were not delivered in this event.";
+  } else if (!state.lines.length && state.referenceOnly) {
     header += "\nThe event only contained a record reference; the forwarded message bodies were not delivered.";
   }
   const numbered = state.lines.map((line, index) => "[message " + (index + 1) + "] " + line);
@@ -845,6 +925,7 @@ async function qqbotOverlayPrepareForwardRecord(ctx, log4) {
   if (qqbotOverlayReadCapabilities().image) {
     image = await qqbotOverlayResolveImage(record.imageCandidates, log4);
   }
+  log4?.debug?.("[qqbot] forward record parsed (image candidates=" + record.imageCandidates.length + ", image resolved=" + (image ? "yes" : "no") + ")");
   return { ...record, image };
 }
 
@@ -1038,7 +1119,7 @@ async function qqbotOverlaySendImageGenerationProgress(envelope, account, log4) 
 
 function buildTencentMediaOverlaySource() {
   return String.raw`
-/* qqbot-tencent-media-overlay-v1 */
+${TENCENT_MEDIA_OVERLAY_MARKER}
 ${buildTencentMediaRecoverySource()}
 const qqbotOverlayRecentImages = new Map();
 
@@ -1081,20 +1162,44 @@ function qqbotOverlayIsQqDownloadUrl(value) {
 
 function qqbotOverlayImageCandidate(attachment) {
   if (!attachment || typeof attachment !== "object") return null;
-  const contentType = String(attachment.contentType ?? attachment.content_type ?? "").toLowerCase();
+  const contentType = String(
+    attachment.contentType ?? attachment.content_type ?? attachment.mimeType ?? attachment.mime_type ??
+    attachment.fileType ?? attachment.file_type ?? ""
+  ).toLowerCase();
   const imageValue = attachment.image ?? attachment.image_url ?? attachment.imageUrl;
   const imageObject = imageValue && typeof imageValue === "object" ? imageValue : null;
-  const url = typeof attachment.url === "string" ? attachment.url :
-    typeof imageValue === "string" ? imageValue : typeof imageObject?.url === "string" ? imageObject.url : "";
-  const localPath = typeof attachment.localPath === "string" ? attachment.localPath :
-    typeof imageObject?.localPath === "string" ? imageObject.localPath : "";
-  const type = String(attachment.type ?? attachment.kind ?? attachment.msg_type ?? "").toLowerCase();
-  const isImage = type === "image" || contentType.startsWith("image/") || qqbotOverlayIsQqDownloadUrl(url);
+  const url = [
+    attachment.url,
+    attachment.download_url,
+    attachment.downloadUrl,
+    attachment.file_url,
+    attachment.fileUrl,
+    attachment.href,
+    typeof imageValue === "string" ? imageValue : "",
+    imageObject?.url,
+    imageObject?.download_url,
+    imageObject?.downloadUrl
+  ].find((value) => typeof value === "string" && /^https?:\/\//i.test(value)) ?? "";
+  const localPath = [
+    attachment.localPath,
+    attachment.local_path,
+    typeof imageValue === "string" && !/^https?:\/\//i.test(imageValue) ? imageValue : "",
+    imageObject?.localPath,
+    imageObject?.local_path,
+    imageObject?.path,
+    attachment.path,
+    attachment.filePath,
+    attachment.file_path
+  ].find((value) => typeof value === "string" && value && !/^https?:\/\//i.test(value)) ?? "";
+  const type = String(attachment.type ?? attachment.kind ?? attachment.msg_type ?? attachment.message_type ?? "").toLowerCase();
+  const hasImageField = imageValue != null || imageObject != null;
+  const isImage = /^(?:image|img|photo|picture|7)$/.test(type) || contentType.startsWith("image/") ||
+    qqbotOverlayIsQqDownloadUrl(url) || (hasImageField && Boolean(url || localPath));
   if (!isImage || (!url && !localPath)) return null;
   return {
     url,
     localPath,
-    filename: attachment.filename ?? attachment.file_name ?? imageObject?.filename,
+    filename: attachment.filename ?? attachment.file_name ?? attachment.name ?? imageObject?.filename ?? imageObject?.file_name,
     contentType: contentType || "image/png"
   };
 }
@@ -1259,10 +1364,27 @@ async function qqbotOverlayPrepareMedia(ctx, processed, log4) {
 ` .replace("__QQBOT_MEDIA_CAPABILITIES_PATH__", JSON.stringify(MEDIA_CAPABILITIES_PATH));
 }
 
+function upgradeTencentMediaOverlay(source) {
+  if (source.includes(TENCENT_MEDIA_OVERLAY_MARKER)) return source;
+  const legacyMarker = LEGACY_TENCENT_MEDIA_OVERLAY_MARKERS.find((marker) => source.includes(marker));
+  const legacyStart = legacyMarker ? source.indexOf(legacyMarker) : -1;
+  if (legacyStart < 0) return source;
+  const overlayEnd = source.indexOf("function historyBuffer(options = {})", legacyStart);
+  if (overlayEnd < 0) {
+    throw new Error("QQ history-media patch could not locate the end of the legacy Tencent media overlay");
+  }
+  return source.slice(0, legacyStart) + buildTencentMediaOverlaySource() + "\n" + source.slice(overlayEnd);
+}
+
 function patchTencentBundle(file) {
   let source = fs.readFileSync(file, "utf8");
   let changed = false;
 
+  const upgradedOverlay = upgradeTencentMediaOverlay(source);
+  if (upgradedOverlay !== source) {
+    source = upgradedOverlay;
+    changed = true;
+  }
   if (!source.includes(TENCENT_MEDIA_OVERLAY_MARKER)) {
     source = replaceOnce(
       source,
@@ -1601,13 +1723,17 @@ function patchTencentBundle(file) {
   return true;
 }
 
-const tencentBundle = findTencentBundle();
-if (tencentBundle) {
-  const changed = patchTencentBundle(tencentBundle);
-  console.log(`${changed ? "Applied" : "Already applied"} QQ media attachment safety patch: ${tencentBundle}`);
-} else {
-  const bundle = findGatewayBundle();
-  if (!bundle) throw new Error("QQ history-media patch: installed Tencent QQBot 2.x or legacy QQBot bundle was not found");
-  const changed = patchBundle(bundle);
-  console.log(`${changed ? "Applied" : "Already applied"} QQ media attachment safety patch: ${bundle}`);
+export { buildTencentMediaOverlaySource, buildTencentMediaRecoverySource, upgradeTencentMediaOverlay };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const tencentBundle = findTencentBundle();
+  if (tencentBundle) {
+    const changed = patchTencentBundle(tencentBundle);
+    console.log(`${changed ? "Applied" : "Already applied"} QQ media attachment safety patch: ${tencentBundle}`);
+  } else {
+    const bundle = findGatewayBundle();
+    if (!bundle) throw new Error("QQ history-media patch: installed Tencent QQBot 2.x or legacy QQBot bundle was not found");
+    const changed = patchBundle(bundle);
+    console.log(`${changed ? "Applied" : "Already applied"} QQ media attachment safety patch: ${bundle}`);
+  }
 }
