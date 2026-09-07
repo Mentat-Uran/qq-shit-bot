@@ -35,7 +35,7 @@ function loadInteractiveHelpers(fetchImpl = async () => {
   };
   const source = buildInteractiveFeaturesSource();
   vm.runInNewContext(
-    `${source}\nthis.__qqbotInteractiveTest = { command: qqbotInteractiveCommand, keyboard: qqbotInteractiveMenuKeyboard, startText: qqbotInteractiveGameStartText, turnText: qqbotInteractiveGameTurnText, questionSummary: qqbotInteractiveQuestionSummary, statusText: qqbotInteractiveGameStatusText, chatStartText: qqbotInteractiveChatGameStartText, chatTurnText: qqbotInteractiveChatGameTurnText, questionerId: qqbotInteractiveQuestionerId, handleGameAction: qqbotInteractiveHandleGameAction, readRequest: qqbotInteractiveReadRequest, applyTtsStyle: qqbotInteractiveApplyTtsStyle, hasVoiceTranscript: qqbotInteractiveHasSuccessfulVoiceTranscript, forceVoiceReply: qqbotInteractiveForceVoiceReply, handleInbound: qqbotInteractiveHandleInbound, handleInteraction: qqbotInteractiveHandleInteraction, sent, fetchCalls };`,
+    `${source}\nthis.__qqbotInteractiveTest = { command: qqbotInteractiveCommand, keyboard: qqbotInteractiveMenuKeyboard, gameHelp: qqbotInteractiveGameHelp, startText: qqbotInteractiveGameStartText, turnText: qqbotInteractiveGameTurnText, questionSummary: qqbotInteractiveQuestionSummary, statusText: qqbotInteractiveGameStatusText, chatStartText: qqbotInteractiveChatGameStartText, chatTurnText: qqbotInteractiveChatGameTurnText, questionerId: qqbotInteractiveQuestionerId, handleGameAction: qqbotInteractiveHandleGameAction, readRequest: qqbotInteractiveReadRequest, applyTtsStyle: qqbotInteractiveApplyTtsStyle, hasVoiceTranscript: qqbotInteractiveHasSuccessfulVoiceTranscript, forceVoiceReply: qqbotInteractiveForceVoiceReply, handleInbound: qqbotInteractiveHandleInbound, handleInteraction: qqbotInteractiveHandleInteraction, sent, fetchCalls };`,
     context,
   );
   return context.__qqbotInteractiveTest;
@@ -49,7 +49,15 @@ test("game commands coexist with read-aloud commands", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("开始成语接龙"))), { kind: "chat-game-start", game: "idiom-chain", mode: "same" });
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("开始成语接龙 同音"))), { kind: "chat-game-start", game: "idiom-chain", mode: "同音" });
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("猜成语"))), { kind: "chat-game-start", game: "idiom-wordle", mode: "same" });
-  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("成语接龙"))), { kind: "game-help" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("成语接龙"))), { kind: "chat-game-start", game: "idiom-chain", mode: "same" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("成语接龙帮助"))), { kind: "game-help" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("数字炸弹"))), { kind: "chat-game-start", game: "number-bomb", mode: "same" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("24点"))), { kind: "chat-game-start", game: "twenty-four", mode: "same" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("猜人物"))), { kind: "chat-game-start", game: "guess-person", mode: "same" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("排序题"))), { kind: "chat-game-start", game: "sorting", mode: "same" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("行测 常识"))), { kind: "chat-game-start", game: "exam", category: "常识", mode: "same" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("小游戏 1"))), { kind: "chat-game-start", game: "number-bomb", mode: "same" });
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("小游戏 题库 2页"))), { kind: "game-help", category: "题库", page: 2 });
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("提示"))), { kind: "game-hint" });
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("查看进度"))), { kind: "game-status" });
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.command("放弃"))), { kind: "game-end" });
@@ -69,10 +77,10 @@ test("QQ menu exposes reading-tone and chat-game buttons without voice mode", ()
     "qqbot:tts:tone:dramatic",
     "qqbot:tts:tone:normal",
     "qqbot:tts:tone:status",
-    "qqbot:game:menu",
-    "qqbot:game:idiom-chain",
-    "qqbot:game:idiom-wordle",
-    "qqbot:game:start",
+    "qqbot:menu:games",
+    "qqbot:menu:exam",
+    "qqbot:menu:ai",
+    "qqbot:menu:other",
     "qqbot:game:end",
   ]);
   const source = buildInteractiveFeaturesSource();
@@ -113,7 +121,14 @@ test("QQ menu exposes reading-tone and chat-game buttons without voice mode", ()
   assert.doesNotMatch(turtleStatus, /会泄露答案的标题|未命名题目/);
   assert.match(helpers.chatStartText({ game_type: "idiom-chain", mode_label: "同字接龙", current_word: "一心一意", target_char: "意", chain_length: 1, max_rounds: 30 }), /成语接龙/);
   assert.match(helpers.chatTurnText({ game_type: "idiom-wordle", accepted: true, word: "一心一心", marks: ["correct", "correct", "present", "absent"], remaining: 9, player: "甲" }), /一🟩/);
-  assert.match(source, /默认题库50道（含30道悬疑\/惊悚\/恐怖原创题）/);
+  assert.match(helpers.gameHelp("题库"), /猜人物/);
+  assert.match(helpers.gameHelp("规则"), /数字炸弹/);
+  assert.match(helpers.gameHelp("题库", 2), /已是最后一页/);
+  assert.match(
+    helpers.chatStartText({ game_type: "exam", title: "行测抢答", prompt: "某道题\\nA. 甲\\nB. 乙", instructions: "发送选项 A/B", exam_category: "常识判断", leaderboard: [] }),
+    /题型：常识判断/,
+  );
+  assert.match(source, /海龟汤的出题和主持使用现有模型/);
 });
 
 test("successful inbound voice transcripts force only the final text reply to native voice", () => {
@@ -170,6 +185,31 @@ test("turtle-soup answers carry the current question summary instead of a sender
   assert.doesNotMatch(helpers.sent.at(-1)[1], /提问者ID|user-1/);
 });
 
+test("answer control renders legacy idiom games as an end result", async () => {
+  const helpers = loadInteractiveHelpers(async (url) => {
+    assert.match(url, /\/v1\/chat-games\/answer$/);
+    return {
+      status: 200,
+      json: async () => ({
+        ok: true,
+        game_type: "idiom-wordle",
+        active: false,
+        ended: true,
+        answer: "一心一意",
+        explanation: "专心一意。",
+        leaderboard: [],
+      }),
+    };
+  });
+  const target = { scope: "group", targetId: "group-1", actorId: "user-1", actorName: "甲" };
+
+  await helpers.handleGameAction({ kind: "game-answer" }, target, { accountId: "account-1" }, {});
+
+  assert.match(helpers.sent.at(-1)[1], /猜成语已结束/);
+  assert.match(helpers.sent.at(-1)[1], /一心一意/);
+  assert.doesNotMatch(helpers.sent.at(-1)[1], /暂无可用提示/);
+});
+
 test("inbound handling records the successful transcript as the one-turn voice-reply intent", async () => {
   const helpers = loadInteractiveHelpers();
   const account = { accountId: "account-1" };
@@ -217,6 +257,26 @@ test("reading-tone button selection is scoped and affects explicit TTS and voice
   assert.match(helpers.sent[0][1], /普通文字回复仍然是文字/);
 });
 
+test("menu category buttons reveal grouped game, exam, AI, and utility views", async () => {
+  const helpers = loadInteractiveHelpers();
+  const account = { accountId: "account-1" };
+  const acknowledge = async () => {};
+  const event = (buttonData) => ({
+    id: "interaction-1",
+    group_openid: "group-1",
+    data: { resolved: { button_data: buttonData, message_id: "message-1" } },
+  });
+
+  for (const buttonData of ["qqbot:menu:games", "qqbot:menu:exam", "qqbot:menu:ai", "qqbot:menu:other"]) {
+    await helpers.handleInteraction(event(buttonData), account, {}, acknowledge);
+  }
+
+  assert.match(helpers.sent[0][1], /群聊玩法目录/);
+  assert.match(helpers.sent[1][1], /行测/);
+  assert.match(helpers.sent[2][1], /海龟汤/);
+  assert.match(helpers.sent[3][1], /其他工具/);
+});
+
 function createBundleFixture(legacyMarker = "") {
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "qqbot-interactive-features-test-"));
   const fixturePath = path.join(fixtureDir, "index.cjs");
@@ -251,7 +311,7 @@ test("bundle patch applies to fresh and legacy fixtures, then stays idempotent",
     try {
       assert.equal(patchBundle(fixturePath), true);
       const patched = fs.readFileSync(fixturePath, "utf8");
-      assert.match(patched, /qqbot-interactive-features-v8/);
+      assert.match(patched, /qqbot-interactive-features-v9/);
       assert.doesNotMatch(patched, /qqbot-interactive-features-v2/);
       assert.doesNotMatch(patched, /qqbot-interactive-features-v7/);
       assert.equal((patched.match(/qqbotInteractiveHandleInbound/g) || []).length, 2);
