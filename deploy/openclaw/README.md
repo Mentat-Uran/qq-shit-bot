@@ -170,7 +170,10 @@ GPU lease service coordinates voice sidecars.
 The overlay adds these Docker-only auxiliary services:
 
 - `qqbot-game`: CPU-limited game API on `127.0.0.1:18104`; its AI referee uses
-  the same Codex base URL/token, while the text-first games need no model call;
+  the same Codex base URL/token, while the text-first games and local 行测题库
+  use deterministic rules without a model call. See
+  [`docs/QQBOT_CHAT_GAMES.md`](../../docs/QQBOT_CHAT_GAMES.md) for the game
+  catalog and the reproducible text-only bank import;
 - `qwen-tts` and `qwen-asr`: on-demand voice sidecars behind the loopback GPU
   gate, with their model caches and device access kept local to this overlay;
 - the existing ComfyUI integration: coordinated by the same GPU lease and
