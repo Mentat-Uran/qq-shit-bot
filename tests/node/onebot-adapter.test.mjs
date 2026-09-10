@@ -69,6 +69,18 @@ test("CQ string messages and private routes are accepted without OneBot structur
   assert.equal(message.conversation_id, "private:u-1");
 });
 
+test("OneBot @ matching tolerates numeric ID formatting differences", () => {
+  const message = normalizeOneBotEvent({
+    post_type: "message",
+    message_type: "group",
+    group_id: "g-format",
+    user_id: "u-format",
+    message_id: "m-format",
+    message: [{ type: "at", data: { qq: "9001" } }, { type: "text", data: { text: "测试" } }],
+  }, { selfId: "0009001" });
+  assert.equal(message.self_mentioned, true);
+});
+
 test("file and JSON card segments become bounded truthful summaries", () => {
   const message = normalizeOneBotEvent({
     post_type: "message",
@@ -176,6 +188,18 @@ test("gateway content prioritizes quote images and carries bounded group candida
   assert.match(content[0].text, /合并转发内容/);
   assert.match(content[0].text, /消息19/);
   assert.doesNotMatch(content[0].text, /消息0/);
+});
+
+test("gateway content preserves addressed OneBot group metadata after removing the @ text", () => {
+  const content = buildGatewayUserContent({
+    message_type: "group",
+    self_mentioned: true,
+    text: "你好",
+  });
+  assert.match(content[0].text, /QQ group message/);
+  assert.match(content[0].text, /explicitly addressed/);
+  assert.match(content[0].text, /do not output NO_REPLY/);
+  assert.match(content[0].text, /你好/);
 });
 
 test("interactive parser and menu cover every current game and text-only OneBot controls", () => {

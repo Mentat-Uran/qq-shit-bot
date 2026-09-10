@@ -78,6 +78,18 @@ function firstValue(data, ...keys) {
   return "";
 }
 
+function normalizeOneBotId(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  return /^\d+$/.test(text) ? text.replace(/^0+(?=\d)/, "") : text;
+}
+
+export function sameOneBotId(left, right) {
+  const normalizedLeft = normalizeOneBotId(left);
+  const normalizedRight = normalizeOneBotId(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
+}
+
 function displayName(sender) {
   return clampText(
     firstValue(sender, "card", "nickname", "username", "title") || "群友",
@@ -180,7 +192,7 @@ function canonicalSegment(segment, selfId) {
       kind: "mention",
       user_id: userId,
       name: clampText(firstValue(data, "name", "display", "text"), 80),
-      is_self: Boolean(selfId && userId && userId === String(selfId)),
+      is_self: sameOneBotId(userId, selfId),
     };
   }
   if (type === "image" || type === "flashimage") return canonicalImage(segment);
@@ -281,7 +293,7 @@ function normalizePayload(payload, { selfId = "", quotedMessage = null, fallback
     mentions,
     quote,
     self_mentioned: mentions.some((mention) => mention.is_self),
-    replied_to_self: Boolean(quote?.user_id && selfId && quote.user_id === String(selfId)),
+    replied_to_self: sameOneBotId(quote?.user_id, selfId),
     has_content: Boolean(text || images.length || segments.some((segment) => segment.kind !== "text")),
     route,
   };
@@ -378,6 +390,14 @@ export function buildGatewayUserContent(
   const parts = [];
   const textSections = [];
   if (readInstruction) textSections.push(readInstruction);
+  if (message.message_type === "group") {
+    const addressed = Boolean(message.self_mentioned || message.replied_to_self);
+    textSections.unshift(
+      addressed
+        ? "Transport metadata: this is a QQ group message and the bot was explicitly addressed by @-mention or direct reply. Answer normally; do not output NO_REPLY."
+        : "Transport metadata: this is a QQ group message that did not explicitly address the bot. Keep the group-mention rule and do not answer unless the adapter has already authorized this turn.",
+    );
+  }
   if (recentContext.length) {
     textSections.push(
       "【最近群聊候选上下文】\n" +

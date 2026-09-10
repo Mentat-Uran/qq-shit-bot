@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -74,13 +77,63 @@ def test_napcat_compose_is_optional_and_does_not_contain_account_credentials():
     service = compose["services"]["napcat"]
     assert service["profiles"] == ["napcat"]
     assert service["image"] == "${NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}"
-    assert service["ports"] == ["127.0.0.1:${NAPCAT_WEBUI_PORT:-6099}:6099"]
+    assert service["ports"] == ["${NAPCAT_WEBUI_BIND_ADDRESS:-127.0.0.1}:${NAPCAT_WEBUI_PORT:-6099}:6099"]
     assert "./runtime/napcat/qq:/app/.config/QQ" in service["volumes"]
     assert "QQ_PASSWORD" not in service["environment"]
     assert "QQ_SECRET" not in service["environment"]
     codex = load_yaml("docker-compose.napcat.codex.yml")
     assert codex["services"]["napcat"]["network_mode"] == "host"
     assert codex["services"]["napcat"]["ports"] == []
+
+
+def test_napcat_webui_configurator_changes_only_the_bind_host():
+    script = DEPLOY_DIR / "configure-napcat-webui.sh"
+    assert os.access(script, os.X_OK)
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        config_path = Path(temporary_dir) / "webui.json"
+        config_path.write_text(
+            json.dumps({"host": "::", "port": 6099, "token": "preserve-this-value"}),
+            encoding="utf-8",
+        )
+        environment = os.environ.copy()
+        environment["NAPCAT_WEBUI_CONFIG"] = str(config_path)
+        environment["NAPCAT_WEBUI_BIND_ADDRESS"] = "192.0.2.175"
+
+        first = subprocess.run(
+            [str(script)],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert first.returncode == 0
+        assert first.stdout == ""
+        assert first.stderr == ""
+        assert json.loads(config_path.read_text(encoding="utf-8")) == {
+            "host": "192.0.2.175",
+            "port": 6099,
+            "token": "preserve-this-value",
+        }
+
+        second = subprocess.run(
+            [str(script)],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert second.returncode == 4
+
+        environment["NAPCAT_WEBUI_BIND_ADDRESS"] = "0.0.0.0"
+        invalid = subprocess.run(
+            [str(script)],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert invalid.returncode == 1
+        assert json.loads(config_path.read_text(encoding="utf-8"))["host"] == "192.0.2.175"
 
 
 def test_chat_completions_endpoint_is_enabled_in_all_versioned_configs():
@@ -105,13 +158,33 @@ def test_onebot_environment_and_launcher_have_the_explicit_boundary_values():
         "ONEBOT_ASR_URL=",
         "ONEBOT_TTS_URL=",
         "NAPCAT_IMAGE=",
+        "NAPCAT_WEBUI_BIND_ADDRESS=127.0.0.1",
     ):
         assert key in env_text
     launcher = (DEPLOY_DIR / "start-onebot.sh").read_text(encoding="utf-8")
     assert "ONEBOT_ACCESS_TOKEN ONEBOT_ALLOWED_GROUP_IDS ONEBOT_ADMIN_USER_IDS" in launcher
     assert "start-codex.sh" in launcher
     assert "--with-napcat" in launcher
+    assert "--no-recreate" in launcher
+    assert "NAPCAT_WEBUI_BIND_ADDRESS" in launcher
+    assert "configure-napcat-webui.sh" in launcher
     assert "--pull missing --force-recreate onebot-adapter napcat" in launcher
+    assert "--pull missing --no-recreate onebot-adapter napcat" in launcher
+    assert "--pull never --no-recreate onebot-adapter" in launcher
     contract = (DEPLOY_DIR / "environment-contract.txt").read_text(encoding="utf-8")
     for key in ("ONEBOT_ACCESS_TOKEN|optional", "ONEBOT_ALLOWED_GROUP_IDS|optional", "NAPCAT_IMAGE|optional"):
         assert key in contract
+
+
+def test_napcat_systemd_unit_is_user_scoped_and_secret_free():
+    unit = (DEPLOY_DIR / "qq-shit-bot-napcat.service").read_text(encoding="utf-8")
+    assert "Type=oneshot" in unit
+    assert "RemainAfterExit=yes" in unit
+    assert "WantedBy=default.target" in unit
+    assert "ONEBOT_SKIP_CORE_START=true" in unit
+    assert "start-onebot.sh --with-napcat --no-recreate" in unit
+    assert "docker compose" in unit
+    assert "stop onebot-adapter napcat" in unit
+    assert "CODEX_PROXY_TOKEN" not in unit
+    assert "ONEBOT_ACCESS_TOKEN" not in unit
+    assert "QQBOT_CLIENT_SECRET" not in unit

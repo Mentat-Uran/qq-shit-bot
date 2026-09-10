@@ -128,14 +128,52 @@ NapCat 镜像和其 QQ 配置目录是独立的 `runtime/napcat/`；该目录被
 
 ### 2. 在 NapCat 中登录普通 QQ
 
-默认 WebUI 仅绑定本机：
+默认 WebUI 仍然只绑定本机。若要从可信局域网中的另一台机器完成首次
+登录，在被忽略的 `.env` 中设置一个确实分配给此宿主机的具体 IPv4 地址：
+
+```dotenv
+NAPCAT_WEBUI_BIND_ADDRESS=192.0.2.10
+NAPCAT_WEBUI_PORT=6099
+```
+
+把示例地址替换成这台宿主机的实际 LAN 地址，然后执行：
+
+```bash
+./start-onebot.sh --with-napcat
+```
+
+启动器会拒绝 `0.0.0.0`、`::` 等通配绑定，并验证该具体地址确实存在于
+Linux 宿主机；bridge Compose 使用该地址发布 `6099`，Linux host-network
+overlay 则只更新 NapCat 持久化 `webui.json` 的 `host` 字段，不改 WebUI
+token、QQ 会话或 OneBot 配置。NapCat 首次初始化时可能会在容器启动后被
+单独重启一次以加载该绑定。
+
+然后在同一可信局域网的机器上打开：
 
 ```text
-http://127.0.0.1:6099/webui
+http://<宿主机局域网IPv4>:6099/webui/
 ```
+
+如果宿主机启用了 UFW，只允许局域网访问这个控制面端口；在确认没有同等
+规则后由宿主机管理员手动执行：
+
+```bash
+sudo ufw allow in from 192.0.2.0/24 to 192.0.2.10 port 6099 proto tcp comment 'NapCat WebUI LAN'
+sudo ufw reload
+sudo ufw status numbered
+```
+
+上面的地址应替换为实际宿主机 LAN IPv4；不要把来源改成 `anywhere`，也不要
+为 `16700` 添加 LAN 放行规则。Windows 客户端可用
+`Test-NetConnection <宿主机局域网IPv4> -Port 6099` 验证 TCP 握手，再打开
+上面的 WebUI 地址。
 
 在 NapCat WebUI 中完成普通 QQ 账号的登录。密码、短信验证、设备验证和
 二维码只由用户手工完成，适配器和启动脚本不读取这些凭据。
+
+`6099` 是账号控制面，必须保留非默认 WebUI 密码/token，不要使用路由器
+端口转发或把它绑定到公网；页面能打开只证明 LAN WebUI 可达，不等于 QQ
+账号已登录或客户端已经完成设备验证。
 
 登录成功后进入 NapCat 的网络/插件网络配置，添加 OneBot 11 WebSocket
 客户端，选择反向 WebSocket，填写：
@@ -157,7 +195,46 @@ OneBot 反向 WS 由 NapCat 主动连入；NapCat 断开时适配器保留可重
 重连间隔。官方 OneBot reverse WebSocket 规范规定了连接 URL、协议头和
 Bearer token 边界，NapCat 官方集成文档也使用 WebSocket 客户端模式。
 
-### 3. 做最小功能验收
+### 3. 设置为 systemd 常驻服务
+
+项目提供了一个不携带任何凭据的 user-level systemd unit。它使用当前
+`.env` 和 `start-onebot.sh`，只管理 `onebot-adapter` 与 `napcat` 两个
+Compose 服务；现有容器使用 `--no-recreate` 启动，避免每次开机都重建 QQ
+会话。当前主机已启用 user lingering，因此该 unit 可以在没有图形登录时由
+systemd user manager 启动；如果迁移到其他主机，需要先确认：
+
+```bash
+loginctl show-user "$(id -un)" -p Linger
+```
+
+安装并立即启用：
+
+```bash
+cd /home/mentat/services/qq-shit-bot/deploy/openclaw
+mkdir -p ~/.config/systemd/user
+install -m 0644 qq-shit-bot-napcat.service \
+  ~/.config/systemd/user/qq-shit-bot-napcat.service
+systemctl --user daemon-reload
+systemctl --user enable --now qq-shit-bot-napcat.service
+systemctl --user status qq-shit-bot-napcat.service --no-pager
+```
+
+日常管理：
+
+```bash
+systemctl --user restart qq-shit-bot-napcat.service  # 登录失效或需要重连时
+systemctl --user stop qq-shit-bot-napcat.service     # 停止 NapCat/OneBot
+systemctl --user start qq-shit-bot-napcat.service    # 再次启动
+journalctl --user -u qq-shit-bot-napcat.service -f  # 查看启动日志
+```
+
+该 unit 显示为 `active (exited)` 是正常的：systemd 负责 Compose 生命周期，
+容器自身的 `restart: unless-stopped` 负责运行期间常驻。`restart` 会短暂断开
+NapCat 与 OneBot，并保留现有 `runtime/napcat/qq` 登录缓存；是否需要重新扫码
+由 QQ/NapCat 的实际登录状态决定。`stop` 只停止目标容器，不删除 volume 或
+运行时目录。
+
+### 4. 做最小功能验收
 
 先看不含密钥和消息正文的本机状态：
 
@@ -222,11 +299,18 @@ OneBot 适配器与官方 Tencent Adapter 的目标是行为并行，不是让�
 - `docker-compose.onebot.yml`：bridge 网络下的独立 OneBot 适配器。
 - `docker-compose.onebot.codex.yml`：Linux host-network overlay，固定本机
   Gateway/游戏地址并保持 loopback。
-- `docker-compose.napcat.yml`：可选 `napcat` profile 和独立 QQ 配置目录。
+- `docker-compose.napcat.yml`：可选 `napcat` profile、独立 QQ 配置目录和
+  `NAPCAT_WEBUI_BIND_ADDRESS` 端口绑定。
 - `docker-compose.napcat.codex.yml`：Linux 下让 NapCat 与适配器共享本机
-  loopback；不包含账号凭据。
+  host network；启动器按 `NAPCAT_WEBUI_BIND_ADDRESS` 更新 WebUI 监听，
+  不包含账号凭据。
+- `configure-napcat-webui.sh`：只修改持久化 `webui.json` 的 `host` 字段，
+  拒绝 wildcard/IPv6/非地址值，不输出 token 或 QQ 数据。
 - `start-onebot.sh`：先启动现有 Codex 栈，再启动适配器；加
-  `--with-napcat` 才会启动 NapCat 容器。
+  `--with-napcat` 才会启动 NapCat 容器，systemd 使用额外的
+  `--no-recreate` 幂等模式。
+- `qq-shit-bot-napcat.service`：user-level systemd 常驻入口，不包含任何
+  Token 或 QQ 登录凭据。
 
 ## 外部状态与证据边界
 

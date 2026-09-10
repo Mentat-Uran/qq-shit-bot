@@ -179,6 +179,38 @@ The overlay adds these Docker-only auxiliary services:
 - the existing ComfyUI integration: coordinated by the same GPU lease and
   not part of the core text/image-understanding path.
 
+### Linux LAN NapCat WebUI and systemd
+
+For the optional ordinary-QQ path, set `NAPCAT_WEBUI_BIND_ADDRESS` to the
+concrete LAN IPv4 assigned to this host and keep `NAPCAT_WEBUI_PORT=6099`.
+The WebUI is then available at
+`http://<宿主机局域网IPv4>:6099/webui/`; keep the WebUI password/token enabled
+and allow TCP 6099 only from the trusted LAN in the host firewall. Do not bind
+to `0.0.0.0`, forward the port from the router, or expose the OneBot adapter's
+16700 port.
+
+To keep the NapCat/OneBot path manageable across reboots, install the supplied
+user-level unit (the current Linux host has user lingering enabled):
+
+```bash
+cd /home/mentat/services/qq-shit-bot/deploy/openclaw
+mkdir -p ~/.config/systemd/user
+install -m 0644 qq-shit-bot-napcat.service \
+  ~/.config/systemd/user/qq-shit-bot-napcat.service
+systemctl --user daemon-reload
+systemctl --user enable --now qq-shit-bot-napcat.service
+```
+
+Use `systemctl --user status|start|stop|restart qq-shit-bot-napcat.service` for
+daily lifecycle management and
+`journalctl --user -u qq-shit-bot-napcat.service -f` for its startup output.
+The unit only manages the two optional Compose services, uses the existing
+ignored `.env`, and never stores QQ credentials or tokens in the unit. Its
+`active (exited)` status is expected: Docker's `restart: unless-stopped`
+policy keeps the containers resident, while the unit provides the boot and
+manual lifecycle hook. A `restart` briefly disconnects NapCat/OneBot but keeps
+the existing QQ session directory.
+
 Only the auxiliary voice/generation services use local GPU model resources.
 Their availability must not be reported as proof that the Codex route or QQ
 delivery works. The game and voice state is local runtime state and remains
@@ -193,7 +225,9 @@ the optional `napcat` Compose profile through `docker-compose.napcat.yml`;
 the official `openclaw-qqbot` adapter remains available in parallel. The
 Linux Codex overlay uses `docker-compose.onebot.codex.yml` and
 `docker-compose.napcat.codex.yml` to keep the adapter, Gateway, game sidecar,
-and NapCat on the existing loopback path.
+and NapCat on the existing host-local path. The adapter and its OneBot
+WebSocket remain loopback-only; the NapCat login WebUI has a separate,
+explicitly configurable bind address.
 
 On Linux, after filling the OneBot access token, exact group allowlist, and
 administrator QQ values in the ignored `.env`, use:
@@ -204,11 +238,38 @@ cd deploy/openclaw
 # Add --with-napcat to start the optional NapCat container as well.
 ```
 
+For manual QQ login from a trusted LAN device, set a concrete IPv4 address
+assigned to this host in the ignored `.env` before starting NapCat:
+
+```dotenv
+NAPCAT_WEBUI_BIND_ADDRESS=192.0.2.10
+NAPCAT_WEBUI_PORT=6099
+```
+
+Replace the example address with the host's actual LAN address. The launcher
+rejects wildcard addresses such as `0.0.0.0` and `::`, and in the Linux
+host-network overlay it updates only NapCat's persisted WebUI `host` field.
+The OneBot adapter stays on `127.0.0.1:16700`.
+
 Login, QR/device verification, and the NapCat WebSocket-client configuration
 are manual WebUI operations. The adapter reuses the current runtime rules,
 Codex image route, bounded group context, all text games, quoted/@ messages,
 and the configured ASR/TTS path, while its outbound messages use OneBot
 `send_*_msg` actions rather than the Tencent SDK.
+
+When the LAN bind is enabled, open the following URL from a machine on the
+same trusted network and complete the NapCat WebUI authentication and QQ
+login manually:
+
+```text
+http://<宿主机局域网IPv4>:6099/webui/
+```
+
+Port `6099` is an account-control surface, not a public service. Keep the
+NapCat WebUI password/token non-default, do not use router port forwarding,
+and do not expose it on a wildcard or public interface. A successful page
+load proves only LAN WebUI reachability; QQ login and device verification
+still require the actual browser/client result.
 
 To inspect or stop the overlay, reuse the complete file set:
 

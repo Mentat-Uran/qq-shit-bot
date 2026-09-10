@@ -16,6 +16,7 @@ import {
   normalizeOneBotEvent,
   normalizeOneBotMessagePayload,
   parseCsv,
+  sameOneBotId,
   splitTextForOneBot,
   stableOpaqueId,
 } from "./onebot-core.mjs";
@@ -322,11 +323,51 @@ export class OneBotAdapter {
     this.ttsStyles = new Map();
     this.queues = new Map();
     this.startedAt = Date.now();
+    this.metrics = {
+      receivedMessageEvents: 0,
+      normalizedMessages: 0,
+      allowedMessages: 0,
+      queuedMessages: 0,
+      droppedMessages: 0,
+      dropReasons: new Map(),
+      gatewayRequests: 0,
+      gatewaySuccesses: 0,
+      gatewayFailures: 0,
+      gatewayEmptyResponses: 0,
+      outboundAttempts: 0,
+      outboundSuccesses: 0,
+      outboundFailures: 0,
+      outboundReplyFallbacks: 0,
+      lastInbound: null,
+    };
   }
 
   log(level, message) {
     const method = this.logger?.[level] || this.logger?.log;
     if (typeof method === "function") method.call(this.logger, message);
+  }
+
+  recordDrop(reason) {
+    const key = String(reason || "unknown");
+    this.metrics.droppedMessages += 1;
+    this.metrics.dropReasons.set(key, (this.metrics.dropReasons.get(key) || 0) + 1);
+    if (this.metrics.lastInbound) this.metrics.lastInbound = { ...this.metrics.lastInbound, decision: "dropped", reason: key };
+  }
+
+  setLastInbound(message, decision = "received", reason = "") {
+    this.metrics.lastInbound = {
+      message_type: message?.message_type || "unknown",
+      self_id_known: Boolean(this.selfId),
+      has_message_id: Boolean(message?.message_id),
+      has_group_id: Boolean(message?.message_type === "group" && message?.route?.target_id),
+      has_user_id: Boolean(message?.user_id),
+      has_content: Boolean(message?.has_content),
+      self_mentioned: Boolean(message?.self_mentioned),
+      replied_to_self: Boolean(message?.replied_to_self),
+      decision,
+      ...(reason ? { reason: String(reason) } : {}),
+      at: new Date().toISOString(),
+    };
   }
 
   healthPayload() {
@@ -341,6 +382,23 @@ export class OneBotAdapter {
         (total, queue) => total + queue.items.length + (queue.running ? 1 : 0),
         0,
       ),
+      message_metrics: {
+        received_events: this.metrics.receivedMessageEvents,
+        normalized_messages: this.metrics.normalizedMessages,
+        allowed_messages: this.metrics.allowedMessages,
+        queued_messages: this.metrics.queuedMessages,
+        dropped_messages: this.metrics.droppedMessages,
+        drop_reasons: Object.fromEntries(this.metrics.dropReasons),
+        gateway_requests: this.metrics.gatewayRequests,
+        gateway_successes: this.metrics.gatewaySuccesses,
+        gateway_failures: this.metrics.gatewayFailures,
+        gateway_empty_responses: this.metrics.gatewayEmptyResponses,
+        outbound_attempts: this.metrics.outboundAttempts,
+        outbound_successes: this.metrics.outboundSuccesses,
+        outbound_failures: this.metrics.outboundFailures,
+        outbound_reply_fallbacks: this.metrics.outboundReplyFallbacks,
+        last_inbound: this.metrics.lastInbound,
+      },
       uptime_seconds: Math.floor((Date.now() - this.startedAt) / 1000),
     };
   }
@@ -461,7 +519,7 @@ export class OneBotAdapter {
         has_content: quoted.has_content,
       };
       message.replied_to_self = Boolean(
-        message.quote.user_id && (connection.selfId || this.selfId) && message.quote.user_id === String(connection.selfId || this.selfId),
+        sameOneBotId(message.quote.user_id, connection.selfId || this.selfId),
       );
     } catch {
       // A quote is still useful as an opaque reference even when get_msg is unavailable.
@@ -668,12 +726,38 @@ export class OneBotAdapter {
     if (event.post_type === "meta_event") {
       return;
     }
-    if (event.post_type !== "message" || !["group", "private"].includes(String(event.message_type))) return;
-    if (event.message_type === "message_sent" || this.eventWasSeen(event)) return;
+    const messageType = String(event.message_type || "").toLowerCase();
+    if (event.post_type !== "message" || !["group", "private"].includes(messageType)) return;
+    this.metrics.receivedMessageEvents += 1;
+    if (this.eventWasSeen(event)) {
+      this.recordDrop("duplicate-message");
+      this.log("info", `[onebot] inbound message dropped reason=duplicate-message type=${messageType}`);
+      return;
+    }
     const senderId = stringValue(event.user_id || event.sender?.user_id);
-    if (this.selfId && senderId === this.selfId) return;
+    if (sameOneBotId(senderId, connection.selfId || this.selfId)) {
+      this.recordDrop("self-message");
+      this.log("info", `[onebot] inbound message dropped reason=self-message type=${messageType}`);
+      return;
+    }
     const message = normalizeOneBotEvent(event, { selfId: connection.selfId || this.selfId });
-    if (!message || !message.message_id || !this.boundaryAccess(message)) return;
+    if (!message) {
+      this.recordDrop("normalize-failed");
+      this.log("info", `[onebot] inbound message dropped reason=normalize-failed type=${messageType}`);
+      return;
+    }
+    this.metrics.normalizedMessages += 1;
+    this.setLastInbound(message);
+    if (!message.message_id) {
+      this.recordDrop("message-id-missing");
+      this.log("info", `[onebot] inbound message dropped reason=message-id-missing type=${messageType}`);
+      return;
+    }
+    if (!this.boundaryAccess(message)) {
+      this.recordDrop(message.message_type === "group" ? "group-not-allowlisted" : "direct-message-not-allowlisted");
+      this.log("info", `[onebot] inbound message dropped reason=${message.message_type === "group" ? "group-not-allowlisted" : "direct-message-not-allowlisted"} type=${messageType}`);
+      return;
+    }
     await this.enrichQuote(connection, message);
 
     const action = parseInteractiveCommand(message.text);
@@ -688,13 +772,23 @@ export class OneBotAdapter {
       explicitCommand: Boolean(action),
       activeGame,
     });
-    if (!access.allowed) return;
+    this.setLastInbound(message, access.allowed ? "allowed" : "dropped", access.reason);
+    this.log(
+      "info",
+      `[onebot] inbound message type=${message.message_type} self_id_known=${this.selfId ? "yes" : "no"} mention=${message.self_mentioned ? "yes" : "no"} reply_to_self=${message.replied_to_self ? "yes" : "no"} access=${access.reason}`,
+    );
+    if (!access.allowed) {
+      this.recordDrop(access.reason);
+      return;
+    }
 
     await this.enrichForward(connection, message);
     await this.enrichAudioTranscript(connection, message);
     const contextEntry = this.contexts.get(message.conversation_id);
     const recentContext = (Array.isArray(contextEntry) ? contextEntry : contextEntry?.items)?.slice(-12) || [];
     this.recordContext(message);
+    this.metrics.allowedMessages += 1;
+    this.metrics.queuedMessages += 1;
     this.enqueueMessage(connection, message, action, recentContext);
   }
 
@@ -919,6 +1013,7 @@ export class OneBotAdapter {
       stream: false,
     };
     let response;
+    this.metrics.gatewayRequests += 1;
     try {
       response = await this.fetch(`${this.config.gatewayUrl}/v1/chat/completions`, {
         method: "POST",
@@ -933,11 +1028,13 @@ export class OneBotAdapter {
         signal: AbortSignal.timeout(this.config.gatewayTimeoutMs),
       });
     } catch (error) {
+      this.metrics.gatewayFailures += 1;
       this.log("warn", "[onebot] Gateway request failed: " + logSafeError(error));
       await this.sendText(connection, message, "模型服务暂时不可用，请稍后再试。", false);
       return;
     }
     if (!response.ok) {
+      this.metrics.gatewayFailures += 1;
       this.log("warn", `[onebot] Gateway returned HTTP ${response.status}`);
       await this.sendText(connection, message, "模型服务暂时不可用，请稍后再试。", false);
       return;
@@ -946,10 +1043,12 @@ export class OneBotAdapter {
     try {
       payload = await response.json();
     } catch (error) {
+      this.metrics.gatewayFailures += 1;
       this.log("warn", "[onebot] Gateway returned invalid JSON: " + logSafeError(error));
       await this.sendText(connection, message, "模型服务返回异常，请稍后再试。", false);
       return;
     }
+    this.metrics.gatewaySuccesses += 1;
     const reply = normalizeGatewayResponse(payload);
     const sentMedia = await this.prepareOutboundMedia(reply.media);
     const requestedVoiceText = reply.ttsText || reply.text;
@@ -965,6 +1064,11 @@ export class OneBotAdapter {
       }
     }
     if (reply.text || sentMedia.length) await this.sendReply(connection, message, reply.text, sentMedia);
+    else {
+      this.metrics.gatewayEmptyResponses += 1;
+      this.log("warn", "[onebot] Gateway returned no sendable content");
+      await this.sendText(connection, message, "我这次没有生成出可发送的回复，请再发一次。", false);
+    }
   }
 
   async prepareOutboundMedia(media) {
@@ -1005,15 +1109,23 @@ export class OneBotAdapter {
     return prepared;
   }
 
+  async sendMessageWithReplyFallback(connection, message, content, includeReply) {
+    const sent = await this.sendMessage(connection, message, content, includeReply);
+    if (sent || !includeReply || !this.config.replyToMessage || !message.message_id) return sent;
+    this.metrics.outboundReplyFallbacks += 1;
+    this.log("warn", "[onebot] reply-segment send failed; retrying without reply");
+    return this.sendMessage(connection, message, content, false);
+  }
+
   async sendReply(connection, message, text, media = []) {
     const textChunks = splitTextForOneBot(text, this.config.textChunkSize);
     let first = true;
     for (const chunk of textChunks) {
-      await this.sendMessage(connection, message, [{ type: "text", data: { text: chunk } }], first);
+      await this.sendMessageWithReplyFallback(connection, message, [{ type: "text", data: { text: chunk } }], first);
       first = false;
     }
     for (const segment of media) {
-      await this.sendMessage(connection, message, [segment], first);
+      await this.sendMessageWithReplyFallback(connection, message, [segment], first);
       first = false;
     }
   }
@@ -1021,12 +1133,21 @@ export class OneBotAdapter {
   async sendText(connection, message, text, includeReply = this.config.replyToMessage) {
     const chunks = splitTextForOneBot(text, this.config.textChunkSize);
     for (let index = 0; index < chunks.length; index += 1) {
-      await this.sendMessage(connection, message, [{ type: "text", data: { text: chunks[index] } }], includeReply && index === 0);
+      await this.sendMessageWithReplyFallback(
+        connection,
+        message,
+        [{ type: "text", data: { text: chunks[index] } }],
+        includeReply && index === 0,
+      );
     }
   }
 
   async sendMessage(connection, message, content, includeReply) {
-    if (!connection || connection.closed || connection.socket.readyState !== WS_OPEN) return false;
+    this.metrics.outboundAttempts += 1;
+    if (!connection || connection.closed || connection.socket.readyState !== WS_OPEN) {
+      this.metrics.outboundFailures += 1;
+      return false;
+    }
     const segments = [];
     if (includeReply && this.config.replyToMessage && message.message_id) {
       segments.push({ type: "reply", data: { id: String(message.message_id) } });
@@ -1039,8 +1160,10 @@ export class OneBotAdapter {
       : { user_id: oneBotNumericId(route.target_id), message: segments };
     try {
       await connection.call(action, params, 30000);
+      this.metrics.outboundSuccesses += 1;
       return true;
     } catch (error) {
+      this.metrics.outboundFailures += 1;
       this.log("warn", `[onebot] ${action} failed: ${logSafeError(error)}`);
       return false;
     }
