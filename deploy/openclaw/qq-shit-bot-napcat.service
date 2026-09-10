@@ -1,0 +1,23 @@
+[Unit]
+Description=qq-shit-bot NapCatQQ and OneBot LAN service
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/home/mentat/services/qq-shit-bot/deploy/openclaw/.env
+ConditionPathExists=/home/mentat/services/qq-shit-bot/deploy/openclaw/start-onebot.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/mentat/services/qq-shit-bot/deploy/openclaw
+Environment=HOME=/home/mentat
+Environment=PATH=/home/mentat/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=ONEBOT_SKIP_CORE_START=true
+ExecStartPre=/bin/sh -c 'attempt=0; while [ "$attempt" -lt 30 ]; do /usr/bin/docker info >/dev/null 2>&1 && exit 0; attempt=$((attempt + 1)); sleep 2; done; echo "Docker daemon did not become ready" >&2; exit 1'
+ExecStart=/home/mentat/services/qq-shit-bot/deploy/openclaw/start-onebot.sh --with-napcat --no-recreate
+ExecStop=/usr/bin/docker compose --env-file /home/mentat/services/qq-shit-bot/deploy/openclaw/.env -f /home/mentat/services/qq-shit-bot/deploy/openclaw/docker-compose.yml -f /home/mentat/services/qq-shit-bot/deploy/openclaw/docker-compose.local.yml -f /home/mentat/services/qq-shit-bot/deploy/openclaw/docker-compose.codex.yml -f /home/mentat/services/qq-shit-bot/deploy/openclaw/docker-compose.onebot.yml -f /home/mentat/services/qq-shit-bot/deploy/openclaw/docker-compose.onebot.codex.yml -f /home/mentat/services/qq-shit-bot/deploy/openclaw/docker-compose.napcat.yml -f /home/mentat/services/qq-shit-bot/deploy/openclaw/docker-compose.napcat.codex.yml --profile napcat stop onebot-adapter napcat
+RemainAfterExit=yes
+TimeoutStartSec=180
+TimeoutStopSec=60
+UMask=0077
+
+[Install]
+WantedBy=default.target

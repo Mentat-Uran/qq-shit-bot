@@ -59,6 +59,7 @@ ONEBOT_MEDIA_ROOTS|optional|
 NAPCAT_IMAGE|optional|
 NAPCAT_UID|optional|
 NAPCAT_GID|optional|
+NAPCAT_WEBUI_BIND_ADDRESS|optional|
 NAPCAT_WEBUI_PORT|optional|
 
 # Legacy aliases are migrated only when the canonical value is empty or a placeholder.

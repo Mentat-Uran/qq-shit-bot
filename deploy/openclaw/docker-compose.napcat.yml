@@ -16,4 +16,4 @@ services:
       onebot-adapter:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${NAPCAT_WEBUI_PORT:-6099}:6099"
+      - "${NAPCAT_WEBUI_BIND_ADDRESS:-127.0.0.1}:${NAPCAT_WEBUI_PORT:-6099}:6099"
